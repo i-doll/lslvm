@@ -92,6 +92,61 @@ describe('Phase 2 — jump and labels', () => {
     `)
     expect(s.global('n')).toBe(5)
   })
+
+  it('a backward jump that re-runs a VariableDeclaration re-initializes it', async () => {
+    // Without per-block declareOrReset, the second pass over `integer i = 0;`
+    // would throw "variable 'i' already declared in this scope".
+    const s = await run(`
+      integer total = 0;
+      default {
+        state_entry() {
+          @retry;
+          integer i = 0;
+          while (i < 3) {
+            total = total + 1;
+            i = i + 1;
+          }
+          if (total < 6) jump retry;
+        }
+      }
+    `)
+    expect(s.global('total')).toBe(6)
+  })
+
+  it('genuine duplicate declarations in the same block are still rejected', async () => {
+    const s = await loadScript({
+      source: `
+        default {
+          state_entry() {
+            integer x = 1;
+            integer x = 2;
+          }
+        }
+      `,
+    })
+    expect(() => s.start()).toThrow(/duplicate declaration of 'x' in block/)
+  })
+
+  it('jump to a label that does not exist in the function throws clearly', async () => {
+    // Without the catch in callUserFunction, the JumpSignal would escape
+    // the function and could land on a same-named label in the caller.
+    const s = await loadScript({
+      source: `
+        integer x = 0;
+        skip_ahead() { jump done; }
+        default {
+          state_entry() {
+            x = 1;
+            skip_ahead();
+            x = 2;
+            @done;
+            x = x + 10;
+          }
+        }
+      `,
+    })
+    expect(() => s.start()).toThrow(/jump to undefined label 'done' in function 'skip_ahead'/)
+  })
 })
 
 describe('Phase 2 — user-defined functions', () => {

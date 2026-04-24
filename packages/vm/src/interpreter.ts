@@ -102,6 +102,14 @@ export function callUserFunction(
       if (fn.returnType === null) return { type: 'void', value: 0 }
       return e.value ? coerce(e.value, fn.returnType as LslType) : defaultEvalFor(fn.returnType as LslType)
     }
+    if (e instanceof JumpSignal) {
+      // A jump that escaped the function body means the label is undefined
+      // within the function. Without this catch the signal would bubble into
+      // the calling handler and could land on an unrelated same-named label.
+      throw new Error(
+        `jump to undefined label '${e.label}' in function '${fn.name}'`,
+      )
+    }
     throw e
   }
   // Fell off end without explicit return.
@@ -110,13 +118,23 @@ export function callUserFunction(
 
 function execBlock(ctx: InterpreterContext, env: Env, block: BlockStatement): void {
   const child = env.push()
-  // Pre-scan label positions so a JumpSignal can resume at one.
+  // Pre-scan: collect label positions and detect duplicate variable names.
+  // Duplicate-decl detection has to run upfront because we use
+  // declareOrReset below — that quietly tolerates re-running a declaration
+  // (which is what backward `jump` does), but a real source-level duplicate
+  // like `integer x; integer x;` should still error.
   let labels: Map<string, number> | null = null
+  const declaredNames = new Set<string>()
   for (let i = 0; i < block.body.length; i++) {
     const s = block.body[i]!
     if (s.kind === 'LabelStatement') {
       if (!labels) labels = new Map()
       labels.set(s.name, i)
+    } else if (s.kind === 'VariableDeclaration') {
+      if (declaredNames.has(s.name)) {
+        throw new Error(`duplicate declaration of '${s.name}' in block`)
+      }
+      declaredNames.add(s.name)
     }
   }
   let i = 0
@@ -179,7 +197,10 @@ function execVariableDeclaration(
   stmt: VariableDeclaration,
 ): void {
   const init = stmt.init ? evalExpression(ctx, env, stmt.init) : undefined
-  env.declare(stmt.name, stmt.typeName as LslType, init)
+  // declareOrReset lets a backward `jump` re-execute a VariableDeclaration —
+  // the second pass updates the existing slot's value rather than throwing
+  // "already declared". The duplicate-source guard runs upfront in execBlock.
+  env.declareOrReset(stmt.name, stmt.typeName as LslType, init)
 }
 
 function execIf(ctx: InterpreterContext, env: Env, stmt: IfStatement): void {
