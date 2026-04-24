@@ -1,6 +1,17 @@
 import type { LslValue } from './values/types.js'
 import type { BuiltinSpec } from './generated/functions.js'
 import type { VirtualClock } from './clock.js'
+import type { Mulberry32 } from './random.js'
+
+/** Script-identity values exposed via llGetOwner / llGetKey / etc. */
+export interface ScriptIdentity {
+  /** Configured via loadScript({ owner }); defaults to NULL_KEY. */
+  readonly owner: string
+  /** Prim key — defaults to a deterministic key derived from filename. */
+  readonly objectKey: string
+  objectName: string
+  readonly scriptName: string
+}
 
 export type ChatType = 'say' | 'shout' | 'whisper' | 'regionSay' | 'regionSayTo' | 'ownerSay' | 'im'
 
@@ -35,6 +46,8 @@ export interface ScriptState {
   readonly listens: import('./builtins/listen.js').ListenEntry[]
   /** Monotonic counter for llListen handles. */
   listenHandleCounter: number
+  readonly random: Mulberry32
+  identity: ScriptIdentity
 }
 
 export type BuiltinImpl = (ctx: CallContext, args: ReadonlyArray<LslValue>) => LslValue | undefined
