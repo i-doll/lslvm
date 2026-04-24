@@ -32,16 +32,20 @@ jobs:
       - name: Verify generated files are in sync with vendor/kwdb.xml
         run: |
           if ! git diff --quiet packages/vm/src/generated/; then
-            echo "::error::Generated files differ from a fresh `pnpm gen`. Re-run locally and commit."
+            echo '::error::Generated files differ from a fresh `pnpm gen`. Re-run locally and commit.'
             git --no-pager diff packages/vm/src/generated/
             exit 1
           fi
 
-      - name: Typecheck
-        run: pnpm typecheck
-
+      # Build before typecheck so the per-package `tsc --noEmit` can resolve
+      # `@lf/parser` / `@lf/vm` via their dist/*.d.ts. (Workspace packages use
+      # the package `exports` map, which only exposes dist; without a prior
+      # build, downstream packages can't see their dependencies' types.)
       - name: Build
         run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
 
       - name: Test with coverage
         run: pnpm test:coverage
