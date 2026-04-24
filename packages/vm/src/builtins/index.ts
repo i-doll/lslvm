@@ -7,6 +7,7 @@ import {
   llGetAndResetTime,
   llResetTime,
 } from './time.js'
+import { llHTTPRequest, llHTTPResponse } from './http.js'
 
 /**
  * Map of `ll*` name → real implementation. Anything not in this map falls
@@ -23,4 +24,6 @@ export const REAL_BUILTINS: Readonly<Record<string, BuiltinImpl>> = {
   llGetTime,
   llGetAndResetTime,
   llResetTime,
+  llHTTPRequest,
+  llHTTPResponse,
 }
