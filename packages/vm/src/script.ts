@@ -7,6 +7,7 @@ import type {
 } from '@lf/parser'
 import type { BuiltinImpl, ChatEntry, CallEntry, ScriptState } from './runtime.js'
 import type { HttpRequestEntry } from './builtins/http.js'
+import type { ListenEntry } from './builtins/listen.js'
 import { execHandler, StateChangeSignal } from './interpreter.js'
 import type { EvalResult, LslType, LslValue } from './values/types.js'
 import { defaultEvalFor } from './values/types.js'
@@ -42,6 +43,8 @@ export class Script {
       clock: new VirtualClock(),
       httpRequests: [],
       httpKeyCounter: 0,
+      listens: [],
+      listenHandleCounter: 0,
     }
     // Build a parent scope holding every kwdb constant (PI, TRUE, HTTP_METHOD,
     // …). Script globals get their own scope below so a user can shadow
@@ -135,6 +138,41 @@ export class Script {
     const req = this.state.httpRequests[this.state.httpRequests.length - 1]
     if (!req) throw new Error('no HTTP request to respond to')
     this.respondToHttp(req.key, response)
+  }
+
+  /** Currently active listen registrations (from `llListen`). */
+  get listens(): ReadonlyArray<ListenEntry> {
+    return this.state.listens
+  }
+
+  /**
+   * Deliver chat to the script. Fires the `listen` event once for every
+   * registered listen whose channel + name + key + message filters match
+   * (empty filter = wildcard). Inactive listens (`llListenControl(_, FALSE)`)
+   * don't deliver.
+   *
+   * Use this to simulate someone else speaking near the script under test.
+   */
+  deliverChat(opts: {
+    channel: number
+    name: string
+    key: string
+    message: string
+  }): void {
+    for (const l of this.state.listens) {
+      if (!l.active) continue
+      if (l.channel !== opts.channel) continue
+      if (l.name && l.name !== opts.name) continue
+      if (l.key && l.key !== '00000000-0000-0000-0000-000000000000' && l.key !== opts.key) continue
+      if (l.message && l.message !== opts.message) continue
+      this.state.clock.schedule(this.state.clock.now, 'listen', {
+        channel: opts.channel,
+        name: opts.name,
+        id: opts.key,
+        message: opts.message,
+      })
+    }
+    this.drainQueue()
   }
 
   /**

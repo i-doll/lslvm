@@ -32,6 +32,9 @@ export interface ScriptState {
   readonly httpRequests: import('./builtins/http.js').HttpRequestEntry[]
   /** Monotonic counter feeding deterministic HTTP request keys. */
   httpKeyCounter: number
+  readonly listens: import('./builtins/listen.js').ListenEntry[]
+  /** Monotonic counter for llListen handles. */
+  listenHandleCounter: number
 }
 
 export type BuiltinImpl = (ctx: CallContext, args: ReadonlyArray<LslValue>) => LslValue | undefined
