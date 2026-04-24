@@ -25,6 +25,10 @@ import type {
   VectorLiteral,
   RotationLiteral,
   ListLiteral,
+  FunctionDeclaration,
+  StateChangeStatement,
+  JumpStatement,
+  LabelStatement,
 } from './ast.js'
 
 const TYPE_KEYWORDS = new Set<TypeName>([
@@ -51,23 +55,93 @@ class Parser {
   parseScript(): { script: Script; diagnostics: Diagnostic[] } {
     const start = this.peek().loc
     const globals: GlobalVariable[] = []
+    const functions: FunctionDeclaration[] = []
     const states: State[] = []
 
     while (!this.isEOF()) {
-      // Top level is either a global var decl, a state declaration, or default.
-      if (this.atTypeKeyword()) {
-        const g = this.parseGlobalVariable()
-        if (g) globals.push(g)
-        else this.recoverToTopLevel()
-        continue
+      // Top level is either:
+      //   * `<type> IDENT (` ...                     → typed user function
+      //   * `<type> IDENT [= literal];`              → global variable
+      //   * `IDENT (` ...                            → void user function
+      //   * `default` / `state IDENT`                → state declaration
+      const decl = this.parseTopLevel()
+      if (decl) {
+        if (decl.kind === 'GlobalVariable') globals.push(decl)
+        else if (decl.kind === 'FunctionDeclaration') functions.push(decl)
+        else states.push(decl)
+      } else {
+        this.recoverToTopLevel()
       }
-      const s = this.parseState()
-      if (s) states.push(s)
-      else this.recoverToTopLevel()
     }
     return {
-      script: { kind: 'Script', loc: start, globals, states },
+      script: { kind: 'Script', loc: start, globals, functions, states },
       diagnostics: this.diags,
+    }
+  }
+
+  private parseTopLevel(): GlobalVariable | FunctionDeclaration | State | null {
+    const t = this.peek()
+    // typed → either function or global var
+    if (t.kind === 'keyword' && TYPE_KEYWORDS.has(t.text as TypeName)) {
+      const next = this.tokens[this.pos + 2]
+      if (next && next.kind === 'lparen') {
+        return this.parseFunctionDeclaration()
+      }
+      return this.parseGlobalVariable()
+    }
+    // bare IDENT( → void function
+    if (t.kind === 'identifier') {
+      const next = this.tokens[this.pos + 1]
+      if (next && next.kind === 'lparen') {
+        return this.parseFunctionDeclaration()
+      }
+      this.diag(`expected state, function, or global at top level (got '${t.text}')`, t.loc)
+      return null
+    }
+    // states
+    if (t.kind === 'keyword' && (t.text === 'default' || t.text === 'state')) {
+      return this.parseState()
+    }
+    this.diag(`expected top-level declaration (got '${t.text}')`, t.loc)
+    return null
+  }
+
+  private parseFunctionDeclaration(): FunctionDeclaration | null {
+    let returnType: TypeName | null = null
+    let startLoc: SourceLocation
+    if (this.atTypeKeyword()) {
+      const t = this.advance()
+      returnType = t.text as TypeName
+      startLoc = t.loc
+    } else {
+      startLoc = this.peek().loc
+    }
+    const name = this.expect('identifier', 'expected function name')
+    if (!name) return null
+    if (!this.expect('lparen', "expected '(' after function name")) return null
+    const params: Param[] = []
+    if (!this.check('rparen')) {
+      while (!this.isEOF()) {
+        const p = this.parseParam()
+        if (!p) return null
+        params.push(p)
+        if (this.check('comma')) {
+          this.advance()
+          continue
+        }
+        break
+      }
+    }
+    if (!this.expect('rparen', "expected ')' to close parameter list")) return null
+    const body = this.parseBlock()
+    if (!body) return null
+    return {
+      kind: 'FunctionDeclaration',
+      loc: startLoc,
+      returnType,
+      name: name.text,
+      params,
+      body,
     }
   }
 
@@ -208,8 +282,14 @@ class Parser {
           return this.parseFor()
         case 'return':
           return this.parseReturn()
+        case 'state':
+          return this.parseStateChange()
+        case 'jump':
+          return this.parseJump()
       }
     }
+
+    if (t.kind === 'at') return this.parseLabel()
 
     // Expression statement
     const expr = this.parseExpression()
@@ -316,6 +396,41 @@ class Parser {
     }
     if (!this.expect('semi', "expected ';' after return statement")) return null
     return { kind: 'ReturnStatement', loc: start.loc, argument }
+  }
+
+  private parseStateChange(): StateChangeStatement | null {
+    const start = this.advance() // 'state'
+    // Target may be an identifier (user state) or the keyword `default`.
+    const t = this.peek()
+    let target: string
+    if (t.kind === 'identifier') {
+      this.advance()
+      target = t.text
+    } else if (t.kind === 'keyword' && t.text === 'default') {
+      this.advance()
+      target = 'default'
+    } else {
+      this.diag(`expected state name after 'state' (got '${t.text}')`, t.loc)
+      return null
+    }
+    if (!this.expect('semi', "expected ';' after state change")) return null
+    return { kind: 'StateChangeStatement', loc: start.loc, target }
+  }
+
+  private parseJump(): JumpStatement | null {
+    const start = this.advance() // 'jump'
+    const id = this.expect('identifier', "expected label name after 'jump'")
+    if (!id) return null
+    if (!this.expect('semi', "expected ';' after jump statement")) return null
+    return { kind: 'JumpStatement', loc: start.loc, label: id.text }
+  }
+
+  private parseLabel(): LabelStatement | null {
+    const start = this.advance() // '@'
+    const id = this.expect('identifier', "expected label name after '@'")
+    if (!id) return null
+    if (!this.expect('semi', "expected ';' after label declaration")) return null
+    return { kind: 'LabelStatement', loc: start.loc, name: id.text }
   }
 
   /** Parse 0+ comma-separated expressions, stopping (without consuming) at `terminator`. */
