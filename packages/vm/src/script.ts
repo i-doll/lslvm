@@ -10,6 +10,7 @@ import { execHandler, StateChangeSignal } from './interpreter.js'
 import type { EvalResult, LslType, LslValue } from './values/types.js'
 import { defaultEvalFor } from './values/types.js'
 import { Env } from './env.js'
+import { VirtualClock } from './clock.js'
 import { EVENT_SPECS } from './generated/events.js'
 import type { EventSpec } from './generated/events.js'
 
@@ -36,6 +37,7 @@ export class Script {
       currentState: 'default',
       chat: [],
       calls: [],
+      clock: new VirtualClock(),
     }
     this.globals = new Env(null)
     initGlobals(this.globals, ast.globals)
@@ -44,6 +46,29 @@ export class Script {
     if (!this.handlersByState.has('default')) {
       throw new Error('LSL script has no default state')
     }
+  }
+
+  /** Current virtual time in milliseconds since script construction. */
+  get now(): number {
+    return this.state.clock.now
+  }
+
+  /**
+   * Advance the virtual clock by `ms` and fire every queued event whose
+   * scheduled time is ≤ the new now (in chronological order). Use this
+   * to test timer-driven, sleep-driven, or future-callback behaviour.
+   */
+  advanceTime(ms: number): void {
+    this.state.clock.advance(ms)
+    this.drainQueue()
+  }
+
+  /**
+   * Configured recurring timer interval in seconds, or 0 if no timer is
+   * registered. Mirrors `llSetTimerEvent`'s most recent argument.
+   */
+  get timerInterval(): number {
+    return this.state.clock.timerIntervalMs / 1000
   }
 
   /** Current LSL state name. */
@@ -105,12 +130,15 @@ export class Script {
       const entry = this.handlersByState.get(this.state.currentState)?.get('state_entry')
       if (entry && eventName !== 'state_entry') {
         this.runHandler(entry, [])
+        this.drainQueue()
       }
     }
     const handler = this.handlersByState.get(this.state.currentState)?.get(eventName)
-    if (!handler) return
-    const args = bindPayload(eventName, payload)
-    this.runHandler(handler, args)
+    if (handler) {
+      const args = bindPayload(eventName, payload)
+      this.runHandler(handler, args)
+    }
+    this.drainQueue()
   }
 
   /** Run state_entry of the default state. */
@@ -120,6 +148,23 @@ export class Script {
     const entry = this.handlersByState.get('default')?.get('state_entry')
     if (entry) {
       this.runHandler(entry, [])
+    }
+    this.drainQueue()
+  }
+
+  /**
+   * Drain any events that became due as a result of the clock advancing
+   * (timer ticks, scheduled callbacks, queued handler invocations).
+   * Called automatically after fire() and advanceTime().
+   */
+  private drainQueue(): void {
+    while (true) {
+      const next = this.state.clock.takeNextDue()
+      if (!next) return
+      const handler = this.handlersByState.get(this.state.currentState)?.get(next.event)
+      if (!handler) continue
+      const args = bindPayload(next.event, next.payload)
+      this.runHandler(handler, args)
     }
   }
 

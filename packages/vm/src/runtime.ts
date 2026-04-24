@@ -1,5 +1,6 @@
 import type { LslValue } from './values/types.js'
 import type { BuiltinSpec } from './generated/functions.js'
+import type { VirtualClock } from './clock.js'
 
 export type ChatType = 'say' | 'shout' | 'whisper' | 'regionSay' | 'regionSayTo' | 'ownerSay' | 'im'
 
@@ -27,6 +28,7 @@ export interface ScriptState {
   currentState: string
   readonly chat: ChatEntry[]
   readonly calls: CallEntry[]
+  readonly clock: VirtualClock
 }
 
 export type BuiltinImpl = (ctx: CallContext, args: ReadonlyArray<LslValue>) => LslValue | undefined
