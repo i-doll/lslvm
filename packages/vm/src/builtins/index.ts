@@ -91,6 +91,20 @@ import {
   llDetectedGrab,
   llDetectedTouchPos,
 } from './detected.js'
+import { llMD5String, llSHA1String, llSHA256String, llHMAC } from './hash.js'
+import {
+  llStringToBase64,
+  llBase64ToString,
+  llIntegerToBase64,
+  llBase64ToInteger,
+} from './base64.js'
+import {
+  llSetText,
+  llSetObjectDesc,
+  llGetObjectDesc,
+  llDie,
+  llResetScript,
+} from './object.js'
 
 /**
  * Map of `ll*` name → real implementation. Anything not in this map falls
@@ -189,4 +203,20 @@ export const REAL_BUILTINS: Readonly<Record<string, BuiltinImpl>> = {
   llDetectedLinkNumber,
   llDetectedGrab,
   llDetectedTouchPos,
+  // hash
+  llMD5String,
+  llSHA1String,
+  llSHA256String,
+  llHMAC,
+  // base64
+  llStringToBase64,
+  llBase64ToString,
+  llIntegerToBase64,
+  llBase64ToInteger,
+  // object
+  llSetText,
+  llSetObjectDesc,
+  llGetObjectDesc,
+  llDie,
+  llResetScript,
 }

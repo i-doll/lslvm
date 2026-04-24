@@ -57,6 +57,18 @@ export interface ScriptState {
    * handler invocation. Top-of-stack is the active context for llDetected*.
    */
   readonly detectedStack: import('./builtins/detected.js').DetectedContext[]
+  /**
+   * Mutable prim appearance — set by llSetText / llSetObjectDesc / etc.
+   * and exposed as Script.text / Script.objectDesc.
+   */
+  appearance: {
+    text: { text: string; color: { x: number; y: number; z: number }; alpha: number } | null
+    description: string
+  }
+  /** Lifecycle flags — `dead` is set when llDie runs. */
+  lifecycle: {
+    dead: boolean
+  }
 }
 
 export type BuiltinImpl = (ctx: CallContext, args: ReadonlyArray<LslValue>) => LslValue | undefined
