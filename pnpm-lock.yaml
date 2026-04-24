@@ -24,7 +24,47 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.19.17)
 
+  examples/fetcher:
+    dependencies:
+      '@lf/vitest':
+        specifier: workspace:*
+        version: link:../../packages/vitest
+    devDependencies:
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.17)
+
+  examples/greeter:
+    dependencies:
+      '@lf/vitest':
+        specifier: workspace:*
+        version: link:../../packages/vitest
+    devDependencies:
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.17)
+
   examples/hello:
+    dependencies:
+      '@lf/vitest':
+        specifier: workspace:*
+        version: link:../../packages/vitest
+    devDependencies:
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.17)
+
+  examples/nametag:
+    dependencies:
+      '@lf/vitest':
+        specifier: workspace:*
+        version: link:../../packages/vitest
+    devDependencies:
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.17)
+
+  examples/remote:
     dependencies:
       '@lf/vitest':
         specifier: workspace:*
