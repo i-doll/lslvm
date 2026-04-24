@@ -1,0 +1,372 @@
+#!/usr/bin/env tsx
+/**
+ * Code generator: parses vendor/kwdb.xml and emits typed TS files for the VM.
+ *
+ * Outputs (all under packages/vm/src/generated/):
+ *   - constants.ts — every <constant> exported as a typed TS value
+ *   - functions.ts — BUILTIN_SPECS metadata array for every <function>
+ *   - events.ts    — EVENT_SPECS + EventPayloads mapped type for every <event>
+ *
+ * Source of truth: Sei-Lisa/kwdb (LGPL-3, vendored at vendor/kwdb.xml).
+ *
+ * The generator filters by grid: anything that explicitly excludes "sl" is dropped
+ * for the default SL output. Multi-grid duplicates (same name, different grids) are
+ * resolved to the SL variant.
+ */
+
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { XMLParser } from 'fast-xml-parser'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const ROOT = resolve(__dirname, '..')
+const KWDB_PATH = resolve(ROOT, 'vendor/kwdb.xml')
+const OUT_DIR = resolve(ROOT, 'packages/vm/src/generated')
+
+// ---- XML loading ----
+
+interface RawParam {
+  '@_name': string
+  '@_type': string
+}
+
+interface RawFunction {
+  '@_name': string
+  '@_type'?: string // return type; absent = void
+  '@_grid'?: string
+  '@_delay'?: string
+  '@_energy'?: string
+  '@_status'?: string
+  '@_version'?: string
+  param?: RawParam | RawParam[]
+}
+
+interface RawEvent {
+  '@_name': string
+  '@_grid'?: string
+  '@_status'?: string
+  '@_version'?: string
+  param?: RawParam | RawParam[]
+}
+
+interface RawConstant {
+  '@_name': string
+  '@_type': string
+  '@_value'?: string
+  '@_grid'?: string
+  '@_status'?: string
+  '@_version'?: string
+}
+
+interface RawDoc {
+  keywords: {
+    function?: RawFunction[]
+    event?: RawEvent[]
+    constant?: RawConstant[]
+  }
+}
+
+function loadXml(): RawDoc {
+  const xml = readFileSync(KWDB_PATH, 'utf8')
+  const parser = new XMLParser({
+    ignoreAttributes: false,
+    isArray: (name) => ['function', 'event', 'constant', 'param'].includes(name),
+  })
+  return parser.parse(xml) as RawDoc
+}
+
+// ---- Filtering ----
+
+/** Default-grid filter: keep entries with no grid attr OR grid containing "sl". */
+function isSL(grid: string | undefined): boolean {
+  if (!grid) return true
+  return grid.split(/\s+/).includes('sl')
+}
+
+function asArray<T>(v: T | T[] | undefined): T[] {
+  if (v === undefined) return []
+  return Array.isArray(v) ? v : [v]
+}
+
+// ---- Type mapping ----
+
+const KNOWN_TYPES = new Set([
+  'integer',
+  'float',
+  'string',
+  'key',
+  'vector',
+  'rotation',
+  'quaternion',
+  'list',
+])
+
+/** Normalize XML type names to our LslType union. */
+function normType(t: string | undefined): string {
+  if (!t) return 'void'
+  if (t === 'quaternion') return 'rotation'
+  if (KNOWN_TYPES.has(t)) return t
+  // OpenSim/AuroraSim-only types we ignore for SL output.
+  return 'integer'
+}
+
+/** TS literal for a LslType value used in generated `as const` arrays. */
+function tsTypeLiteral(t: string): string {
+  return JSON.stringify(t)
+}
+
+// ---- Constant value parsing ----
+
+function parseConstantValue(type: string, value: string | undefined): string | null {
+  if (value === undefined) return null
+  const v = value.trim()
+  switch (type) {
+    case 'integer': {
+      // hex like 0x10 or signed decimals
+      if (/^-?0x[0-9a-fA-F]+$/.test(v)) return v
+      if (/^-?\d+$/.test(v)) return v
+      return null
+    }
+    case 'float': {
+      // strip trailing 'f' if present (e.g. "3.14f")
+      const cleaned = v.replace(/f$/i, '')
+      if (Number.isFinite(Number(cleaned))) return cleaned
+      return null
+    }
+    case 'string':
+    case 'key': {
+      // The XML stores raw text (already-decoded entities). We need a JS string literal.
+      return JSON.stringify(v)
+    }
+    case 'vector':
+    case 'rotation': {
+      // Format: <x, y, z> or <x, y, z, s>
+      const m = v.match(/^<\s*([^>]+)\s*>$/)
+      if (!m || !m[1]) return null
+      const parts = m[1].split(',').map((p) => p.trim().replace(/f$/i, ''))
+      if (type === 'vector' && parts.length === 3) {
+        const [x, y, z] = parts
+        return `Object.freeze({ x: ${x}, y: ${y}, z: ${z} })`
+      }
+      if (type === 'rotation' && parts.length === 4) {
+        const [x, y, z, s] = parts
+        return `Object.freeze({ x: ${x}, y: ${y}, z: ${z}, s: ${s} })`
+      }
+      return null
+    }
+    case 'list':
+      return null // rare; skip
+    default:
+      return null
+  }
+}
+
+function tsConstantType(type: string): string {
+  switch (type) {
+    case 'integer':
+    case 'float':
+      return 'number'
+    case 'string':
+    case 'key':
+      return 'string'
+    case 'vector':
+      return 'Vector'
+    case 'rotation':
+      return 'Rotation'
+    default:
+      return 'never'
+  }
+}
+
+// ---- Code emitters ----
+
+const HEADER = `// AUTO-GENERATED by scripts/gen-stubs.ts — do not edit by hand.
+// Source: vendor/kwdb.xml (Sei-Lisa/kwdb, LGPL-3.0).
+// Run \`pnpm gen\` to regenerate.
+
+`
+
+function emitConstants(doc: RawDoc): string {
+  const seen = new Map<string, string>() // name -> rendered line
+  for (const c of doc.keywords.constant ?? []) {
+    if (!isSL(c['@_grid'])) continue
+    const name = c['@_name']
+    if (seen.has(name)) continue
+    const type = normType(c['@_type'])
+    const val = parseConstantValue(type, c['@_value'])
+    if (val === null) continue
+    const tsType = tsConstantType(type)
+    if (tsType === 'never') continue
+    const status = c['@_status'] === 'deprecated' ? '/** @deprecated */ ' : ''
+    seen.set(name, `${status}export const ${name}: ${tsType} = ${val}`)
+  }
+  const body = [...seen.values()].sort().join('\n')
+  return (
+    HEADER +
+    `import type { Vector, Rotation } from '../values/types.js'\n\n` +
+    body +
+    '\n'
+  )
+}
+
+function emitFunctions(doc: RawDoc): string {
+  const seen = new Map<string, string>()
+  for (const f of doc.keywords.function ?? []) {
+    if (!isSL(f['@_grid'])) continue
+    const name = f['@_name']
+    if (seen.has(name)) continue
+    const ret = normType(f['@_type'])
+    const delay = Number.parseFloat(f['@_delay'] ?? '0') || 0
+    const status = f['@_status'] ?? 'normal'
+    const params = asArray(f.param).map((p) => ({
+      name: p['@_name'],
+      type: normType(p['@_type']),
+    }))
+    const paramsLit = params
+      .map((p) => `{ name: ${JSON.stringify(p.name)}, type: ${tsTypeLiteral(p.type)} }`)
+      .join(', ')
+    seen.set(
+      name,
+      `  ${JSON.stringify(name)}: { name: ${JSON.stringify(name)}, returnType: ${tsTypeLiteral(ret)}, delay: ${delay}, status: ${JSON.stringify(status)}, params: [${paramsLit}] },`,
+    )
+  }
+  const body = [...seen.values()].sort().join('\n')
+  return (
+    HEADER +
+    `import type { LslType } from '../values/types.js'
+
+export interface ParamSpec {
+  readonly name: string
+  readonly type: LslType
+}
+
+export interface BuiltinSpec {
+  readonly name: string
+  readonly returnType: LslType
+  /** Documented per-call delay in seconds (LSL throttles). */
+  readonly delay: number
+  readonly status: 'normal' | 'deprecated' | 'godmode' | 'unimplemented'
+  readonly params: ReadonlyArray<ParamSpec>
+}
+
+export const BUILTIN_SPECS = {
+${body}
+} as const satisfies Record<string, BuiltinSpec>
+
+export type BuiltinName = keyof typeof BUILTIN_SPECS
+`
+  )
+}
+
+function emitEvents(doc: RawDoc): string {
+  const entries: Array<{ name: string; params: { name: string; type: string }[] }> = []
+  const seen = new Set<string>()
+  for (const e of doc.keywords.event ?? []) {
+    if (!isSL(e['@_grid'])) continue
+    const name = e['@_name']
+    if (seen.has(name)) continue
+    seen.add(name)
+    entries.push({
+      name,
+      params: asArray(e.param).map((p) => ({
+        name: p['@_name'],
+        type: normType(p['@_type']),
+      })),
+    })
+  }
+  entries.sort((a, b) => a.name.localeCompare(b.name))
+
+  const specs = entries
+    .map((e) => {
+      const paramsLit = e.params
+        .map((p) => `{ name: ${JSON.stringify(p.name)}, type: ${tsTypeLiteral(p.type)} }`)
+        .join(', ')
+      return `  ${JSON.stringify(e.name)}: { name: ${JSON.stringify(e.name)}, params: [${paramsLit}] },`
+    })
+    .join('\n')
+
+  // Map LslType to a TS payload type for the event payload interface.
+  function tsPayloadType(t: string): string {
+    switch (t) {
+      case 'integer':
+      case 'float':
+        return 'number'
+      case 'string':
+      case 'key':
+        return 'string'
+      case 'vector':
+        return 'Vector'
+      case 'rotation':
+        return 'Rotation'
+      case 'list':
+        return 'ReadonlyArray<unknown>'
+      default:
+        return 'unknown'
+    }
+  }
+
+  const payloads = entries
+    .map((e) => {
+      const fields = e.params
+        .map((p) => `    readonly ${p.name}: ${tsPayloadType(p.type)}`)
+        .join('\n')
+      return `  ${e.name}: {
+${fields}
+  }`
+    })
+    .join('\n')
+
+  return (
+    HEADER +
+    `import type { LslType, Vector, Rotation } from '../values/types.js'
+
+export interface EventParamSpec {
+  readonly name: string
+  readonly type: LslType
+}
+
+export interface EventSpec {
+  readonly name: string
+  readonly params: ReadonlyArray<EventParamSpec>
+}
+
+export const EVENT_SPECS = {
+${specs}
+} as const satisfies Record<string, EventSpec>
+
+export type EventName = keyof typeof EVENT_SPECS
+
+/** Typed payload for each event. Used by Script.fire() so callers get IDE help. */
+export interface EventPayloads {
+${payloads}
+}
+`
+  )
+}
+
+// ---- Main ----
+
+function main(): void {
+  const doc = loadXml()
+  mkdirSync(OUT_DIR, { recursive: true })
+
+  const constantsTs = emitConstants(doc)
+  const functionsTs = emitFunctions(doc)
+  const eventsTs = emitEvents(doc)
+
+  writeFileSync(resolve(OUT_DIR, 'constants.ts'), constantsTs)
+  writeFileSync(resolve(OUT_DIR, 'functions.ts'), functionsTs)
+  writeFileSync(resolve(OUT_DIR, 'events.ts'), eventsTs)
+
+  const counts = {
+    constants: (constantsTs.match(/^export const /gm) ?? []).length,
+    functions: (functionsTs.match(/^  "/gm) ?? []).length,
+    events: (eventsTs.match(/^  [a-z]/gm) ?? []).length / 2, // appears in both specs and payloads
+  }
+  console.log(
+    `gen-stubs: wrote ${counts.constants} constants, ${counts.functions} functions, ${counts.events} events`,
+  )
+}
+
+main()
