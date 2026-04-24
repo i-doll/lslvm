@@ -7,21 +7,37 @@ import type {
   EventHandler,
   Param,
   Statement,
+  BlockStatement,
   Expression,
   CallExpression,
   ExpressionStatement,
+  VariableDeclaration,
+  IfStatement,
+  WhileStatement,
+  DoWhileStatement,
+  ForStatement,
+  ReturnStatement,
+  BinaryOp,
+  AssignmentOp,
+  UpdateExpression,
+  GlobalVariable,
+  TypeName,
+  VectorLiteral,
+  RotationLiteral,
+  ListLiteral,
 } from './ast.js'
 
-const TYPE_KEYWORDS = new Set([
+const TYPE_KEYWORDS = new Set<TypeName>([
   'integer',
   'float',
   'string',
   'key',
   'vector',
   'rotation',
-  'quaternion',
   'list',
 ])
+
+const ASSIGN_OPS = new Set<AssignmentOp>(['=', '+=', '-=', '*=', '/=', '%='])
 
 class Parser {
   private pos = 0
@@ -34,15 +50,48 @@ class Parser {
 
   parseScript(): { script: Script; diagnostics: Diagnostic[] } {
     const start = this.peek().loc
+    const globals: GlobalVariable[] = []
     const states: State[] = []
+
     while (!this.isEOF()) {
+      // Top level is either a global var decl, a state declaration, or default.
+      if (this.atTypeKeyword()) {
+        const g = this.parseGlobalVariable()
+        if (g) globals.push(g)
+        else this.recoverToTopLevel()
+        continue
+      }
       const s = this.parseState()
       if (s) states.push(s)
       else this.recoverToTopLevel()
     }
     return {
-      script: { kind: 'Script', loc: start, states },
+      script: { kind: 'Script', loc: start, globals, states },
       diagnostics: this.diags,
+    }
+  }
+
+  // ---- Top level ----
+
+  private parseGlobalVariable(): GlobalVariable | null {
+    const t = this.expectKeyword(TYPE_KEYWORDS as Set<string>, 'expected global variable type')
+    if (!t) return null
+    const name = this.expect('identifier', 'expected global variable name')
+    if (!name) return null
+    let init: Expression | null = null
+    if (this.checkOp('=')) {
+      this.advance()
+      const e = this.parseExpression()
+      if (!e) return null
+      init = e
+    }
+    if (!this.expect('semi', "expected ';' after global variable declaration")) return null
+    return {
+      kind: 'GlobalVariable',
+      loc: t.loc,
+      typeName: t.text as TypeName,
+      name: name.text,
+      init,
     }
   }
 
@@ -71,7 +120,7 @@ class Parser {
     while (!this.check('rbrace') && !this.isEOF()) {
       const h = this.parseEventHandler()
       if (h) handlers.push(h)
-      else this.recoverInsideState()
+      else this.recoverInsideBlock()
     }
     this.expect('rbrace', "expected '}' to close state body")
 
@@ -84,23 +133,21 @@ class Parser {
     if (!this.expect('lparen', "expected '(' after event handler name")) return null
 
     const params: Param[] = []
-    while (!this.check('rparen') && !this.isEOF()) {
-      const p = this.parseParam()
-      if (!p) return null
-      params.push(p)
-      if (this.check('comma')) this.advance()
-      else break
+    if (!this.check('rparen')) {
+      while (!this.isEOF()) {
+        const p = this.parseParam()
+        if (!p) return null
+        params.push(p)
+        if (this.check('comma')) {
+          this.advance()
+          continue
+        }
+        break
+      }
     }
     if (!this.expect('rparen', "expected ')' to close parameter list")) return null
-    if (!this.expect('lbrace', "expected '{' to open handler body")) return null
-
-    const body: Statement[] = []
-    while (!this.check('rbrace') && !this.isEOF()) {
-      const s = this.parseStatement()
-      if (s) body.push(s)
-      else this.recoverInsideBlock()
-    }
-    this.expect('rbrace', "expected '}' to close handler body")
+    const body = this.parseBlock()
+    if (!body) return null
 
     return {
       kind: 'EventHandler',
@@ -113,18 +160,58 @@ class Parser {
 
   private parseParam(): Param | null {
     const t = this.peek()
-    if (t.kind !== 'keyword' || !TYPE_KEYWORDS.has(t.text)) {
+    if (t.kind !== 'keyword' || !TYPE_KEYWORDS.has(t.text as TypeName)) {
       this.diag(`expected parameter type, got '${t.text}'`, t.loc)
       return null
     }
     this.advance()
     const name = this.expect('identifier', 'expected parameter name')
     if (!name) return null
-    return { kind: 'Param', loc: t.loc, typeName: t.text, name: name.text }
+    return { kind: 'Param', loc: t.loc, typeName: t.text as TypeName, name: name.text }
+  }
+
+  // ---- Statements ----
+
+  private parseBlock(): BlockStatement | null {
+    const open = this.expect('lbrace', "expected '{' to open block")
+    if (!open) return null
+    const body: Statement[] = []
+    while (!this.check('rbrace') && !this.isEOF()) {
+      const s = this.parseStatement()
+      if (s) body.push(s)
+      else this.recoverInsideBlock()
+    }
+    this.expect('rbrace', "expected '}' to close block")
+    return { kind: 'BlockStatement', loc: open.loc, body }
   }
 
   private parseStatement(): Statement | null {
-    // Phase 1 only supports expression statements (used for ll* calls).
+    const t = this.peek()
+
+    // Variable declaration: `type IDENT [= expr] ;`
+    if (this.atTypeKeyword()) {
+      return this.parseVariableDeclaration()
+    }
+
+    // Block
+    if (t.kind === 'lbrace') return this.parseBlock()
+
+    if (t.kind === 'keyword') {
+      switch (t.text) {
+        case 'if':
+          return this.parseIf()
+        case 'while':
+          return this.parseWhile()
+        case 'do':
+          return this.parseDoWhile()
+        case 'for':
+          return this.parseFor()
+        case 'return':
+          return this.parseReturn()
+      }
+    }
+
+    // Expression statement
     const expr = this.parseExpression()
     if (!expr) return null
     if (!this.expect('semi', "expected ';' after expression statement")) return null
@@ -136,8 +223,287 @@ class Parser {
     return stmt
   }
 
+  private parseVariableDeclaration(): VariableDeclaration | null {
+    const t = this.advance() // type keyword
+    const name = this.expect('identifier', 'expected variable name')
+    if (!name) return null
+    let init: Expression | null = null
+    if (this.checkOp('=')) {
+      this.advance()
+      const e = this.parseExpression()
+      if (!e) return null
+      init = e
+    }
+    if (!this.expect('semi', "expected ';' after variable declaration")) return null
+    return {
+      kind: 'VariableDeclaration',
+      loc: t.loc,
+      typeName: t.text as TypeName,
+      name: name.text,
+      init,
+    }
+  }
+
+  private parseIf(): IfStatement | null {
+    const start = this.advance() // 'if'
+    if (!this.expect('lparen', "expected '(' after 'if'")) return null
+    const test = this.parseExpression()
+    if (!test) return null
+    if (!this.expect('rparen', "expected ')' after if condition")) return null
+    const consequent = this.parseStatement()
+    if (!consequent) return null
+    let alternate: Statement | null = null
+    if (this.peek().kind === 'keyword' && this.peek().text === 'else') {
+      this.advance()
+      alternate = this.parseStatement()
+      if (!alternate) return null
+    }
+    return { kind: 'IfStatement', loc: start.loc, test, consequent, alternate }
+  }
+
+  private parseWhile(): WhileStatement | null {
+    const start = this.advance() // 'while'
+    if (!this.expect('lparen', "expected '(' after 'while'")) return null
+    const test = this.parseExpression()
+    if (!test) return null
+    if (!this.expect('rparen', "expected ')' after while condition")) return null
+    const body = this.parseStatement()
+    if (!body) return null
+    return { kind: 'WhileStatement', loc: start.loc, test, body }
+  }
+
+  private parseDoWhile(): DoWhileStatement | null {
+    const start = this.advance() // 'do'
+    const body = this.parseStatement()
+    if (!body) return null
+    if (!(this.peek().kind === 'keyword' && this.peek().text === 'while')) {
+      this.diag(`expected 'while' after 'do' body`, this.peek().loc)
+      return null
+    }
+    this.advance()
+    if (!this.expect('lparen', "expected '(' after 'while'")) return null
+    const test = this.parseExpression()
+    if (!test) return null
+    if (!this.expect('rparen', "expected ')' after while condition")) return null
+    if (!this.expect('semi', "expected ';' after do-while statement")) return null
+    return { kind: 'DoWhileStatement', loc: start.loc, body, test }
+  }
+
+  private parseFor(): ForStatement | null {
+    const start = this.advance() // 'for'
+    if (!this.expect('lparen', "expected '(' after 'for'")) return null
+    const init = this.parseExpressionList('semi')
+    if (!this.expect('semi', "expected ';' after for-init")) return null
+    let test: Expression | null = null
+    if (!this.check('semi')) {
+      test = this.parseExpression()
+      if (!test) return null
+    }
+    if (!this.expect('semi', "expected ';' after for-test")) return null
+    const update = this.parseExpressionList('rparen')
+    if (!this.expect('rparen', "expected ')' to close for-header")) return null
+    const body = this.parseStatement()
+    if (!body) return null
+    return { kind: 'ForStatement', loc: start.loc, init, test, update, body }
+  }
+
+  private parseReturn(): ReturnStatement | null {
+    const start = this.advance() // 'return'
+    let argument: Expression | null = null
+    if (!this.check('semi')) {
+      argument = this.parseExpression()
+      if (!argument) return null
+    }
+    if (!this.expect('semi', "expected ';' after return statement")) return null
+    return { kind: 'ReturnStatement', loc: start.loc, argument }
+  }
+
+  /** Parse 0+ comma-separated expressions, stopping (without consuming) at `terminator`. */
+  private parseExpressionList(terminator: TokenKind): Expression[] {
+    const out: Expression[] = []
+    if (this.check(terminator)) return out
+    while (!this.isEOF()) {
+      const e = this.parseExpression()
+      if (!e) return out
+      out.push(e)
+      if (this.check('comma')) {
+        this.advance()
+        continue
+      }
+      break
+    }
+    return out
+  }
+
+  // ---- Expressions (precedence climbing) ----
+  // Lowest precedence at top, highest at bottom.
+
   private parseExpression(): Expression | null {
-    return this.parsePrimary()
+    return this.parseAssignment()
+  }
+
+  private parseAssignment(): Expression | null {
+    const left = this.parseLogicalOr()
+    if (!left) return null
+    if (this.peek().kind === 'op' && ASSIGN_OPS.has(this.peek().text as AssignmentOp)) {
+      const op = this.advance()
+      const value = this.parseAssignment()
+      if (!value) return null
+      return {
+        kind: 'AssignmentExpression',
+        loc: left.loc,
+        operator: op.text as AssignmentOp,
+        target: left,
+        value,
+      }
+    }
+    return left
+  }
+
+  private parseLogicalOr(): Expression | null {
+    return this.parseBinaryLeft(['||'], () => this.parseLogicalAnd())
+  }
+  private parseLogicalAnd(): Expression | null {
+    return this.parseBinaryLeft(['&&'], () => this.parseBitwiseOr())
+  }
+  private parseBitwiseOr(): Expression | null {
+    return this.parseBinaryLeft(['|'], () => this.parseBitwiseXor())
+  }
+  private parseBitwiseXor(): Expression | null {
+    return this.parseBinaryLeft(['^'], () => this.parseBitwiseAnd())
+  }
+  private parseBitwiseAnd(): Expression | null {
+    return this.parseBinaryLeft(['&'], () => this.parseEquality())
+  }
+  private parseEquality(): Expression | null {
+    return this.parseBinaryLeft(['==', '!='], () => this.parseRelational())
+  }
+  private parseRelational(): Expression | null {
+    return this.parseBinaryLeft(['<', '>', '<=', '>='], () => this.parseShift())
+  }
+  private parseShift(): Expression | null {
+    return this.parseBinaryLeft(['<<', '>>'], () => this.parseAdditive())
+  }
+  private parseAdditive(): Expression | null {
+    return this.parseBinaryLeft(['+', '-'], () => this.parseMultiplicative())
+  }
+  private parseMultiplicative(): Expression | null {
+    return this.parseBinaryLeft(['*', '/', '%'], () => this.parseCast())
+  }
+
+  private parseBinaryLeft(
+    ops: ReadonlyArray<BinaryOp>,
+    next: () => Expression | null,
+  ): Expression | null {
+    let left = next()
+    if (!left) return null
+    while (this.peek().kind === 'op' && (ops as ReadonlyArray<string>).includes(this.peek().text)) {
+      const op = this.advance()
+      const right = next()
+      if (!right) return null
+      left = {
+        kind: 'BinaryExpression',
+        loc: left.loc,
+        operator: op.text as BinaryOp,
+        left,
+        right,
+      }
+    }
+    return left
+  }
+
+  private parseCast(): Expression | null {
+    // Cast vs paren-expr: `(type) expr` is a cast; otherwise it's a paren-expr.
+    if (this.check('lparen')) {
+      const next = this.tokens[this.pos + 1]
+      const after = this.tokens[this.pos + 2]
+      if (
+        next &&
+        next.kind === 'keyword' &&
+        TYPE_KEYWORDS.has(next.text as TypeName) &&
+        after &&
+        after.kind === 'rparen'
+      ) {
+        const start = this.advance() // (
+        const ty = this.advance() // type
+        this.advance() // )
+        const arg = this.parseCast()
+        if (!arg) return null
+        return {
+          kind: 'CastExpression',
+          loc: start.loc,
+          targetType: ty.text as TypeName,
+          argument: arg,
+        }
+      }
+    }
+    return this.parseUnary()
+  }
+
+  private parseUnary(): Expression | null {
+    const t = this.peek()
+    if (t.kind === 'op') {
+      if (t.text === '-' || t.text === '+' || t.text === '!' || t.text === '~') {
+        this.advance()
+        const arg = this.parseUnary()
+        if (!arg) return null
+        return {
+          kind: 'UnaryExpression',
+          loc: t.loc,
+          operator: t.text,
+          argument: arg,
+        }
+      }
+      if (t.text === '++' || t.text === '--') {
+        this.advance()
+        const arg = this.parseUnary()
+        if (!arg) return null
+        const upd: UpdateExpression = {
+          kind: 'UpdateExpression',
+          loc: t.loc,
+          operator: t.text,
+          prefix: true,
+          argument: arg,
+        }
+        return upd
+      }
+    }
+    return this.parsePostfix()
+  }
+
+  private parsePostfix(): Expression | null {
+    let expr = this.parsePrimary()
+    if (!expr) return null
+    // Postfix: ++ / -- / .x / .y / .z / .s
+    while (true) {
+      const t = this.peek()
+      if (t.kind === 'op' && (t.text === '++' || t.text === '--')) {
+        this.advance()
+        const upd: UpdateExpression = {
+          kind: 'UpdateExpression',
+          loc: t.loc,
+          operator: t.text,
+          prefix: false,
+          argument: expr,
+        }
+        expr = upd
+        continue
+      }
+      if (t.kind === 'dot') {
+        this.advance()
+        const id = this.expect('identifier', "expected member name after '.'")
+        if (!id) return null
+        expr = {
+          kind: 'MemberExpression',
+          loc: t.loc,
+          object: expr,
+          property: id.text,
+        }
+        continue
+      }
+      break
+    }
+    return expr
   }
 
   private parsePrimary(): Expression | null {
@@ -156,17 +522,9 @@ class Parser {
     }
     if (t.kind === 'identifier') {
       this.advance()
-      // Function call?
       if (this.check('lparen')) {
         this.advance()
-        const args: Expression[] = []
-        while (!this.check('rparen') && !this.isEOF()) {
-          const a = this.parseExpression()
-          if (!a) return null
-          args.push(a)
-          if (this.check('comma')) this.advance()
-          else break
-        }
+        const args: Expression[] = this.parseExpressionList('rparen')
         if (!this.expect('rparen', "expected ')' to close call argument list")) return null
         const call: CallExpression = {
           kind: 'CallExpression',
@@ -178,8 +536,54 @@ class Parser {
       }
       return { kind: 'Identifier', loc: t.loc, name: t.text }
     }
+    if (t.kind === 'lparen') {
+      this.advance()
+      const inner = this.parseExpression()
+      if (!inner) return null
+      if (!this.expect('rparen', "expected ')'")) return null
+      return inner
+    }
+    if (t.kind === 'lbracket') {
+      return this.parseListLiteral()
+    }
+    if (t.kind === 'op' && t.text === '<') {
+      return this.parseVectorOrRotationLiteral()
+    }
     this.diag(`unexpected token '${t.text}' in expression`, t.loc)
     return null
+  }
+
+  private parseListLiteral(): ListLiteral | null {
+    const start = this.advance() // [
+    const elements: Expression[] = this.parseExpressionList('rbracket')
+    if (!this.expect('rbracket', "expected ']' to close list literal")) return null
+    return { kind: 'ListLiteral', loc: start.loc, elements }
+  }
+
+  /**
+   * Vector `<x, y, z>` or rotation `<x, y, z, s>`.
+   * Components parse at additive precedence so relational `<`/`>` inside
+   * components must be parenthesised — matches LSL convention.
+   */
+  private parseVectorOrRotationLiteral(): VectorLiteral | RotationLiteral | null {
+    const start = this.advance() // <
+    const x = this.parseAdditive()
+    if (!x) return null
+    if (!this.expect('comma', "expected ',' in vector/rotation literal")) return null
+    const y = this.parseAdditive()
+    if (!y) return null
+    if (!this.expect('comma', "expected ',' in vector/rotation literal")) return null
+    const z = this.parseAdditive()
+    if (!z) return null
+    if (this.check('comma')) {
+      this.advance()
+      const s = this.parseAdditive()
+      if (!s) return null
+      if (!this.expectOp('>', "expected '>' to close rotation literal")) return null
+      return { kind: 'RotationLiteral', loc: start.loc, x, y, z, s }
+    }
+    if (!this.expectOp('>', "expected '>' to close vector literal")) return null
+    return { kind: 'VectorLiteral', loc: start.loc, x, y, z }
   }
 
   // ---- token helpers ----
@@ -202,6 +606,16 @@ class Parser {
     return this.peek().kind === kind
   }
 
+  private checkOp(text: string): boolean {
+    const t = this.peek()
+    return t.kind === 'op' && t.text === text
+  }
+
+  private atTypeKeyword(): boolean {
+    const t = this.peek()
+    return t.kind === 'keyword' && TYPE_KEYWORDS.has(t.text as TypeName)
+  }
+
   private expect(kind: TokenKind, message: string): Token | null {
     const t = this.peek()
     if (t.kind === kind) {
@@ -211,21 +625,39 @@ class Parser {
     return null
   }
 
+  private expectOp(text: string, message: string): Token | null {
+    const t = this.peek()
+    if (t.kind === 'op' && t.text === text) return this.advance()
+    this.diag(`${message} (got '${t.text}')`, t.loc)
+    return null
+  }
+
+  private expectKeyword(allowed: ReadonlySet<string>, message: string): Token | null {
+    const t = this.peek()
+    if (t.kind === 'keyword' && allowed.has(t.text)) return this.advance()
+    this.diag(`${message} (got '${t.text}')`, t.loc)
+    return null
+  }
+
   private diag(message: string, loc: SourceLocation): void {
     this.diags.push({ severity: 'error', message, filename: this.filename, loc })
   }
 
-  // ---- recovery (very basic for Phase 1) ----
+  // ---- recovery ----
 
   private recoverToTopLevel(): void {
     while (!this.isEOF()) {
       const t = this.peek()
-      if (t.kind === 'keyword' && (t.text === 'default' || t.text === 'state')) return
+      if (
+        t.kind === 'keyword' &&
+        (t.text === 'default' || t.text === 'state' || TYPE_KEYWORDS.has(t.text as TypeName))
+      )
+        return
       this.advance()
     }
   }
 
-  private recoverInsideState(): void {
+  private recoverInsideBlock(): void {
     let depth = 0
     while (!this.isEOF()) {
       const t = this.peek()
@@ -233,19 +665,10 @@ class Parser {
       else if (t.kind === 'rbrace') {
         if (depth === 0) return
         depth--
-      }
-      this.advance()
-    }
-  }
-
-  private recoverInsideBlock(): void {
-    while (!this.isEOF()) {
-      const t = this.peek()
-      if (t.kind === 'semi') {
+      } else if (t.kind === 'semi' && depth === 0) {
         this.advance()
         return
       }
-      if (t.kind === 'rbrace') return
       this.advance()
     }
   }
