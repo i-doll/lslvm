@@ -11,6 +11,7 @@ import type { ListenEntry } from './builtins/listen.js'
 import type { LinkedMessageEntry } from './builtins/linked.js'
 import type { DataserverRequestEntry } from './builtins/dataserver.js'
 import type { DetectedEntry } from './builtins/detected.js'
+import { ResetScriptSignal } from './builtins/object.js'
 import { Mulberry32 } from './random.js'
 import { NULL_KEY } from './values/types.js'
 import { execHandler, StateChangeSignal } from './interpreter.js'
@@ -75,6 +76,13 @@ export class Script {
       dataserverRequests: [],
       dataserverKeyCounter: 0,
       detectedStack: [],
+      appearance: {
+        text: null,
+        description: '',
+      },
+      lifecycle: {
+        dead: false,
+      },
     }
     // Build a parent scope holding every kwdb constant (PI, TRUE, HTTP_METHOD,
     // …). Script globals get their own scope below so a user can shadow
@@ -207,6 +215,25 @@ export class Script {
     this.respondToDataserver(req.key, value)
   }
 
+  /** Currently displayed floating text (from llSetText). null if unset. */
+  get text(): {
+    text: string
+    color: { x: number; y: number; z: number }
+    alpha: number
+  } | null {
+    return this.state.appearance.text
+  }
+
+  /** Object description from llSetObjectDesc. */
+  get objectDesc(): string {
+    return this.state.appearance.description
+  }
+
+  /** True once `llDie()` has been called. Subsequent fire() calls are no-ops. */
+  get dead(): boolean {
+    return this.state.lifecycle.dead
+  }
+
   /**
    * Deliver chat to the script. Fires the `listen` event once for every
    * registered listen whose channel + name + key + message filters match
@@ -271,6 +298,7 @@ export class Script {
    * — matches LSL behavior of silently dropping unhandled events.
    */
   fire(eventName: string, payload: Record<string, unknown> = {}): void {
+    if (this.state.lifecycle.dead) return
     if (!this.started) {
       this.started = true
       const entry = this.handlersByState.get(this.state.currentState)?.get('state_entry')
@@ -289,6 +317,7 @@ export class Script {
 
   /** Run state_entry of the default state. */
   start(): void {
+    if (this.state.lifecycle.dead) return
     if (this.started) return
     this.started = true
     const entry = this.handlersByState.get('default')?.get('state_entry')
@@ -296,6 +325,23 @@ export class Script {
       this.runHandler(entry, [])
     }
     this.drainQueue()
+  }
+
+  /**
+   * Reset the script as if `llResetScript` had been called: clear globals,
+   * reseed them from the AST initializers, return to the default state,
+   * and run state_entry. Used internally when llResetScript is invoked
+   * from inside a handler; tests can also call it directly to reset
+   * between scenarios.
+   */
+  reset(): void {
+    // Re-build globals from the AST.
+    this.globals.clear()
+    initGlobals(this.globals, this.ast.globals)
+    this.state.currentState = 'default'
+    this.state.lifecycle.dead = false
+    this.started = false
+    this.start()
   }
 
   /**
@@ -361,6 +407,10 @@ export class Script {
       try {
         execHandler(ctx, h, a)
       } catch (e) {
+        if (e instanceof ResetScriptSignal) {
+          this.reset()
+          return
+        }
         if (!(e instanceof StateChangeSignal)) throw e
         const target = e.target
         // Run state_exit of current state.

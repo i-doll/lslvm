@@ -45,6 +45,11 @@ export class Env {
     return this.slots.has(name)
   }
 
+  /** Drop every slot in *this* scope; doesn't touch the parent chain. */
+  clear(): void {
+    this.slots.clear()
+  }
+
   /** Open a child scope. */
   push(): Env {
     return new Env(this)
