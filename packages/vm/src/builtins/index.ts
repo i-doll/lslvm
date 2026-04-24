@@ -1,5 +1,12 @@
 import type { BuiltinImpl } from '../runtime.js'
 import { llSay, llShout, llWhisper, llOwnerSay } from './chat.js'
+import {
+  llSetTimerEvent,
+  llSleep,
+  llGetTime,
+  llGetAndResetTime,
+  llResetTime,
+} from './time.js'
 
 /**
  * Map of `ll*` name → real implementation. Anything not in this map falls
@@ -11,4 +18,9 @@ export const REAL_BUILTINS: Readonly<Record<string, BuiltinImpl>> = {
   llShout,
   llWhisper,
   llOwnerSay,
+  llSetTimerEvent,
+  llSleep,
+  llGetTime,
+  llGetAndResetTime,
+  llResetTime,
 }
