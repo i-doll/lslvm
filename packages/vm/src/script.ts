@@ -8,6 +8,8 @@ import type {
 import type { BuiltinImpl, ChatEntry, CallEntry, ScriptState } from './runtime.js'
 import type { HttpRequestEntry } from './builtins/http.js'
 import type { ListenEntry } from './builtins/listen.js'
+import { Mulberry32 } from './random.js'
+import { NULL_KEY } from './values/types.js'
 import { execHandler, StateChangeSignal } from './interpreter.js'
 import type { EvalResult, LslType, LslValue } from './values/types.js'
 import { defaultEvalFor } from './values/types.js'
@@ -20,6 +22,19 @@ import { CONSTANT_TABLE } from './generated/constants_table.js'
 export interface ScriptOptions {
   /** Filename used in diagnostics; defaults to "<inline>". */
   readonly filename?: string
+  /**
+   * Seed for the script's PRNG (used by llFrand and friends). Default 1.
+   * Pin a seed per test if you need deterministic random output.
+   */
+  readonly randomSeed?: number
+  /** Owner key returned by llGetOwner. Defaults to NULL_KEY. */
+  readonly owner?: string
+  /** Prim key returned by llGetKey. Defaults to a deterministic per-script key. */
+  readonly objectKey?: string
+  /** Prim name returned by llGetObjectName. Defaults to "Object". */
+  readonly objectName?: string
+  /** Script name returned by llGetScriptName. Defaults to filename basename or "script". */
+  readonly scriptName?: string
 }
 
 /**
@@ -35,7 +50,7 @@ export class Script {
   private readonly handlersByState: Map<string, Map<string, EventHandler>>
   private started = false
 
-  constructor(private readonly ast: Ast) {
+  constructor(private readonly ast: Ast, options: ScriptOptions = {}) {
     this.state = {
       currentState: 'default',
       chat: [],
@@ -45,6 +60,14 @@ export class Script {
       httpKeyCounter: 0,
       listens: [],
       listenHandleCounter: 0,
+      random: new Mulberry32(options.randomSeed ?? 1),
+      identity: {
+        owner: options.owner ?? NULL_KEY,
+        objectKey:
+          options.objectKey ?? deterministicKey(options.scriptName ?? options.filename ?? 'script'),
+        objectName: options.objectName ?? 'Object',
+        scriptName: options.scriptName ?? deriveScriptName(options.filename),
+      },
     }
     // Build a parent scope holding every kwdb constant (PI, TRUE, HTTP_METHOD,
     // …). Script globals get their own scope below so a user can shadow
@@ -406,6 +429,29 @@ function literalToNumber(expr: import('@lf/parser').Expression): number | null {
     return literalToNumber(expr.argument)
   }
   return null
+}
+
+/** A stable, UUID-shaped string derived from `seed`. */
+function deterministicKey(seed: string): string {
+  // Use a small FNV-1a hash → 16 bytes → UUID format.
+  let h1 = 0x811c9dc5
+  for (let i = 0; i < seed.length; i++) {
+    h1 ^= seed.charCodeAt(i)
+    h1 = Math.imul(h1, 0x01000193) >>> 0
+  }
+  let h2 = (h1 ^ 0xdeadbeef) >>> 0
+  for (let i = 0; i < seed.length; i++) {
+    h2 ^= seed.charCodeAt(i) << (i & 31)
+    h2 = Math.imul(h2, 0x01000193) >>> 0
+  }
+  const hex = (h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0')).repeat(2)
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+}
+
+function deriveScriptName(filename: string | undefined): string {
+  if (!filename) return 'script'
+  const last = filename.split('/').pop() ?? filename
+  return last.replace(/\.lsl$/i, '')
 }
 
 function inferType(v: LslValue): LslType {
