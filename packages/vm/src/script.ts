@@ -347,10 +347,14 @@ export class Script {
   /**
    * Drain any events that became due as a result of the clock advancing
    * (timer ticks, scheduled callbacks, queued handler invocations).
-   * Called automatically after fire() and advanceTime().
+   * Called automatically after fire() and advanceTime() — also reachable
+   * indirectly via deliverChat / respondToHttp / respondToDataserver.
+   *
+   * Stops if a dispatched handler calls llDie(): the script is dead, no
+   * further events should fire.
    */
   private drainQueue(): void {
-    while (true) {
+    while (!this.state.lifecycle.dead) {
       const next = this.state.clock.takeNextDue()
       if (!next) return
       const handler = this.handlersByState.get(this.state.currentState)?.get(next.event)

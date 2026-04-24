@@ -72,8 +72,55 @@ function loadXml(): RawDoc {
   const parser = new XMLParser({
     ignoreAttributes: false,
     isArray: (name) => ['function', 'event', 'constant', 'param'].includes(name),
+    // The kwdb XML uses numeric character references like &#xFDD2; for the
+    // JSON_* type-tag constants. Without these flags fast-xml-parser only
+    // decodes the five predefined XML entities; the numeric refs would be
+    // delivered as literal `&#xFDD2;` text and the constants would be wrong.
+    processEntities: true,
+    htmlEntities: true,
   })
   return parser.parse(xml) as RawDoc
+}
+
+/**
+ * Interpret LSL string-escape sequences (which the kwdb XML stores as
+ * literal text — e.g. `\n` is the two characters backslash + 'n', not a
+ * newline). Without this pass, constants like EOF (`"\n\n\n"`) end up
+ * as the 6-char literal `\n\n\n` instead of the 3-char string of newlines.
+ */
+function interpretLslEscapes(s: string): string {
+  let out = ''
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    if (ch !== '\\' || i + 1 >= s.length) {
+      out += ch
+      continue
+    }
+    const next = s[i + 1]!
+    if (next === 'n') {
+      out += '\n'
+      i++
+    } else if (next === 't') {
+      out += '\t'
+      i++
+    } else if (next === 'r') {
+      out += '\r'
+      i++
+    } else if (next === '\\') {
+      out += '\\'
+      i++
+    } else if (next === '"') {
+      out += '"'
+      i++
+    } else if (next === 'x' && i + 3 < s.length && /[0-9a-fA-F]{2}/.test(s.slice(i + 2, i + 4))) {
+      out += String.fromCharCode(Number.parseInt(s.slice(i + 2, i + 4), 16))
+      i += 3
+    } else {
+      // Unknown escape — preserve as-is (matches LSL's lenient behaviour).
+      out += ch
+    }
+  }
+  return out
 }
 
 // ---- Filtering ----
@@ -136,8 +183,8 @@ function parseConstantValue(type: string, value: string | undefined): string | n
     }
     case 'string':
     case 'key': {
-      // The XML stores raw text (already-decoded entities). We need a JS string literal.
-      return JSON.stringify(v)
+      // Interpret LSL escapes (`\n`, `\t`, `\xHH`, ...) before stringifying.
+      return JSON.stringify(interpretLslEscapes(v))
     }
     case 'vector':
     case 'rotation': {

@@ -37,6 +37,15 @@ describe('Phase 3 — hash builtins', () => {
       '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824',
     )
   })
+
+  it('llHMAC returns Base64-encoded digest, not hex (kwdb spec)', async () => {
+    const s = await run(`
+      string out = "";
+      default { state_entry() { out = llHMAC("secret", "hello", "sha256"); } }
+    `)
+    // echo -n 'hello' | openssl dgst -sha256 -hmac 'secret' -binary | base64
+    expect(s.global('out')).toBe('iKqz7ejTrflNJquQ07r9SiCDBww7zOnAFO4EpEOEfAs=')
+  })
 })
 
 describe('Phase 3 — base64 builtins', () => {
@@ -122,6 +131,24 @@ describe('Phase 3 — object lifecycle and appearance', () => {
     expect(s.dead).toBe(true)
     s.fire('touch_start', { num_detected: 1 })
     expect(s.global('touched')).toBe(0)
+  })
+
+  it('llDie inside a queue-dispatched handler stops further drains', async () => {
+    // A timer that calls llDie on its 2nd fire — without the dead-check
+    // in drainQueue, advanceTime(2_500) would still fire ticks 3, 4, 5.
+    const s = await run(`
+      integer ticks = 0;
+      default {
+        state_entry() { llSetTimerEvent(0.5); }
+        timer() {
+          ticks = ticks + 1;
+          if (ticks == 2) llDie();
+        }
+      }
+    `)
+    s.advanceTime(2_500)
+    expect(s.global('ticks')).toBe(2)
+    expect(s.dead).toBe(true)
   })
 
   it('llResetScript restores globals to their initializers and reruns state_entry', async () => {

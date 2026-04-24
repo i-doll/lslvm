@@ -26,6 +26,24 @@ export class Env {
     this.slots.set(name, { type, value })
   }
 
+  /**
+   * Declare-or-reset: like `declare`, but if `name` already exists in this
+   * scope, overwrite its value (and type) instead of throwing. Used by the
+   * interpreter when a backward `jump` re-executes a VariableDeclaration —
+   * the slot already exists from the first pass and the declaration is
+   * effectively a re-initialization. The execBlock pre-scan still catches
+   * real source-level duplicate declarations.
+   */
+  declareOrReset(name: string, type: LslType, init?: EvalResult): void {
+    const slot = this.slots.get(name)
+    if (slot) {
+      slot.type = type
+      slot.value = init ? coerce(init, type) : defaultEvalFor(type)
+      return
+    }
+    this.declare(name, type, init)
+  }
+
   /** Get a variable's current value. Walks up the parent chain. */
   get(name: string): EvalResult {
     const slot = this.findSlot(name)
