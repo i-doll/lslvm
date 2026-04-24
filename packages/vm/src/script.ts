@@ -491,6 +491,13 @@ function literalToEval(
       return { type: 'float', value: expr.value }
     case 'StringLiteral':
       return { type: 'string', value: expr.value }
+    case 'Identifier': {
+      // LSL global initializers may reference predefined constants
+      // (TRUE, FALSE, PI, NULL_KEY, HTTP_METHOD, …).
+      const c = CONSTANT_TABLE[expr.name]
+      if (!c) return undefined
+      return { type: c.type as LslType, value: c.value as LslValue }
+    }
     case 'VectorLiteral': {
       const x = literalToNumber(expr.x)
       const y = literalToNumber(expr.y)
@@ -531,6 +538,11 @@ function literalToEval(
 function literalToNumber(expr: import('@lf/parser').Expression): number | null {
   if (expr.kind === 'IntegerLiteral') return expr.value | 0
   if (expr.kind === 'FloatLiteral') return expr.value
+  if (expr.kind === 'Identifier') {
+    const c = CONSTANT_TABLE[expr.name]
+    if (c && typeof c.value === 'number') return c.value
+    return null
+  }
   if (expr.kind === 'UnaryExpression' && expr.operator === '-') {
     const n = literalToNumber(expr.argument)
     return n === null ? null : -n

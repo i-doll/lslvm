@@ -100,6 +100,67 @@ expect.extend({
       expected: { name, args },
     }
   },
+
+  toHaveSentHTTP(
+    received: unknown,
+    expected: { url?: string; method?: string; body?: string },
+  ): MatcherResult {
+    if (!isScript(received)) {
+      return {
+        pass: false,
+        message: () => `expected a Script, received ${typeof received}`,
+      }
+    }
+    const reqs = received.httpRequests
+    const matched = reqs.some(
+      (r) =>
+        (expected.url === undefined || r.url === expected.url) &&
+        (expected.method === undefined || r.method === expected.method) &&
+        (expected.body === undefined || r.body === expected.body),
+    )
+    return {
+      pass: matched,
+      message: () =>
+        matched
+          ? `expected script not to have sent HTTP ${JSON.stringify(expected)}`
+          : `expected script to have sent HTTP ${JSON.stringify(expected)}\n  actual requests: ${JSON.stringify(reqs, null, 2)}`,
+      actual: reqs,
+      expected,
+    }
+  },
+
+  toHaveListened(
+    received: unknown,
+    channel: number,
+    filter?: { name?: string; key?: string; message?: string },
+  ): MatcherResult {
+    if (!isScript(received)) {
+      return {
+        pass: false,
+        message: () => `expected a Script, received ${typeof received}`,
+      }
+    }
+    const NULL_KEY = '00000000-0000-0000-0000-000000000000'
+    const matched = received.listens.some(
+      (l) =>
+        l.active &&
+        l.channel === channel &&
+        (filter?.name === undefined || l.name === filter.name) &&
+        (filter?.key === undefined ||
+          l.key === filter.key ||
+          (filter.key === '' && (l.key === '' || l.key === NULL_KEY))) &&
+        (filter?.message === undefined || l.message === filter.message),
+    )
+    return {
+      pass: matched,
+      message: () =>
+        matched
+          ? `expected script not to have listened on channel ${channel}`
+          : `expected script to have listened on channel ${channel}${filter ? ` with filter ${JSON.stringify(filter)}` : ''}\n  actual listens: ${JSON.stringify(received.listens, null, 2)}`,
+      actual: received.listens,
+      expected: { channel, filter },
+    }
+  },
 })
 
 declare module 'vitest' {
@@ -107,10 +168,14 @@ declare module 'vitest' {
     toHaveSaid(channel: number, text: string): T
     toBeInState(name: string): T
     toHaveCalledFunction(name: string, ...args: unknown[]): T
+    toHaveSentHTTP(expected: { url?: string; method?: string; body?: string }): T
+    toHaveListened(channel: number, filter?: { name?: string; key?: string; message?: string }): T
   }
   interface AsymmetricMatchersContaining {
     toHaveSaid(channel: number, text: string): unknown
     toBeInState(name: string): unknown
     toHaveCalledFunction(name: string, ...args: unknown[]): unknown
+    toHaveSentHTTP(expected: { url?: string; method?: string; body?: string }): unknown
+    toHaveListened(channel: number, filter?: { name?: string; key?: string; message?: string }): unknown
   }
 }
