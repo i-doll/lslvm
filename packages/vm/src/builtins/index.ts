@@ -70,6 +70,27 @@ import {
   llSetObjectName,
   llGetScriptName,
 } from './identity.js'
+import { llMessageLinked } from './linked.js'
+import {
+  llRequestAgentData,
+  llRequestInventoryData,
+  llRequestSimulatorData,
+  llRequestUsername,
+  llRequestDisplayName,
+} from './dataserver.js'
+import {
+  llDetectedKey,
+  llDetectedName,
+  llDetectedOwner,
+  llDetectedGroup,
+  llDetectedPos,
+  llDetectedRot,
+  llDetectedVel,
+  llDetectedType,
+  llDetectedLinkNumber,
+  llDetectedGrab,
+  llDetectedTouchPos,
+} from './detected.js'
 
 /**
  * Map of `ll*` name → real implementation. Anything not in this map falls
@@ -148,4 +169,24 @@ export const REAL_BUILTINS: Readonly<Record<string, BuiltinImpl>> = {
   llGetObjectName,
   llSetObjectName,
   llGetScriptName,
+  // linked
+  llMessageLinked,
+  // dataserver
+  llRequestAgentData,
+  llRequestInventoryData,
+  llRequestSimulatorData,
+  llRequestUsername,
+  llRequestDisplayName,
+  // detected
+  llDetectedKey,
+  llDetectedName,
+  llDetectedOwner,
+  llDetectedGroup,
+  llDetectedPos,
+  llDetectedRot,
+  llDetectedVel,
+  llDetectedType,
+  llDetectedLinkNumber,
+  llDetectedGrab,
+  llDetectedTouchPos,
 }

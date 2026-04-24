@@ -48,6 +48,15 @@ export interface ScriptState {
   listenHandleCounter: number
   readonly random: Mulberry32
   identity: ScriptIdentity
+  readonly linkedMessages: import('./builtins/linked.js').LinkedMessageEntry[]
+  readonly dataserverRequests: import('./builtins/dataserver.js').DataserverRequestEntry[]
+  /** Monotonic counter for dataserver request keys. */
+  dataserverKeyCounter: number
+  /**
+   * Stack of detected contexts pushed during touch / sensor / collision
+   * handler invocation. Top-of-stack is the active context for llDetected*.
+   */
+  readonly detectedStack: import('./builtins/detected.js').DetectedContext[]
 }
 
 export type BuiltinImpl = (ctx: CallContext, args: ReadonlyArray<LslValue>) => LslValue | undefined

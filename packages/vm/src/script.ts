@@ -8,6 +8,9 @@ import type {
 import type { BuiltinImpl, ChatEntry, CallEntry, ScriptState } from './runtime.js'
 import type { HttpRequestEntry } from './builtins/http.js'
 import type { ListenEntry } from './builtins/listen.js'
+import type { LinkedMessageEntry } from './builtins/linked.js'
+import type { DataserverRequestEntry } from './builtins/dataserver.js'
+import type { DetectedEntry } from './builtins/detected.js'
 import { Mulberry32 } from './random.js'
 import { NULL_KEY } from './values/types.js'
 import { execHandler, StateChangeSignal } from './interpreter.js'
@@ -68,6 +71,10 @@ export class Script {
         objectName: options.objectName ?? 'Object',
         scriptName: options.scriptName ?? deriveScriptName(options.filename),
       },
+      linkedMessages: [],
+      dataserverRequests: [],
+      dataserverKeyCounter: 0,
+      detectedStack: [],
     }
     // Build a parent scope holding every kwdb constant (PI, TRUE, HTTP_METHOD,
     // …). Script globals get their own scope below so a user can shadow
@@ -168,6 +175,38 @@ export class Script {
     return this.state.listens
   }
 
+  /** Captured llMessageLinked invocations. */
+  get linkedMessages(): ReadonlyArray<LinkedMessageEntry> {
+    return this.state.linkedMessages
+  }
+
+  /** Captured pending dataserver requests (llRequestAgentData and friends). */
+  get dataserverRequests(): ReadonlyArray<DataserverRequestEntry> {
+    return this.state.dataserverRequests
+  }
+
+  /**
+   * Feed a value back to a pending dataserver request. Schedules a
+   * `dataserver` event with the request key and a string value.
+   */
+  respondToDataserver(key: string, value: string): void {
+    const req = this.state.dataserverRequests.find((r) => r.key === key)
+    if (!req) throw new Error(`unknown dataserver request key: ${key}`)
+    req.fulfilled = true
+    this.state.clock.schedule(this.state.clock.now, 'dataserver', {
+      queryid: key,
+      data: value,
+    })
+    this.drainQueue()
+  }
+
+  /** Convenience: respond to the most recent dataserver request. */
+  respondToLastDataserver(value: string): void {
+    const req = this.state.dataserverRequests[this.state.dataserverRequests.length - 1]
+    if (!req) throw new Error('no dataserver request to respond to')
+    this.respondToDataserver(req.key, value)
+  }
+
   /**
    * Deliver chat to the script. Fires the `listen` event once for every
    * registered listen whose channel + name + key + message filters match
@@ -243,7 +282,7 @@ export class Script {
     const handler = this.handlersByState.get(this.state.currentState)?.get(eventName)
     if (handler) {
       const args = bindPayload(eventName, payload)
-      this.runHandler(handler, args)
+      this.withDetected(payload, () => this.runHandler(handler, args))
     }
     this.drainQueue()
   }
@@ -271,7 +310,28 @@ export class Script {
       const handler = this.handlersByState.get(this.state.currentState)?.get(next.event)
       if (!handler) continue
       const args = bindPayload(next.event, next.payload)
-      this.runHandler(handler, args)
+      this.withDetected(next.payload, () => this.runHandler(handler, args))
+    }
+  }
+
+  /**
+   * Push a detected context (if the payload includes `detected`) for the
+   * duration of `fn`, so llDetectedKey / Name / Pos / etc. inside the
+   * handler resolve to the right entries. State-change handlers spawned
+   * by runHandler don't see the context — that's correct, LSL clears
+   * detected info between handler invocations.
+   */
+  private withDetected(payload: Record<string, unknown>, fn: () => void): void {
+    const detected = payload['detected']
+    if (!Array.isArray(detected) || detected.length === 0) {
+      fn()
+      return
+    }
+    this.state.detectedStack.push({ entries: detected as ReadonlyArray<DetectedEntry> })
+    try {
+      fn()
+    } finally {
+      this.state.detectedStack.pop()
     }
   }
 
