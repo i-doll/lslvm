@@ -9,7 +9,17 @@ export interface Node {
 export interface Script extends Node {
   readonly kind: 'Script'
   readonly globals: ReadonlyArray<GlobalVariable>
+  readonly functions: ReadonlyArray<FunctionDeclaration>
   readonly states: ReadonlyArray<State>
+}
+
+export interface FunctionDeclaration extends Node {
+  readonly kind: 'FunctionDeclaration'
+  /** Declared return type, or null for void-returning functions. */
+  readonly returnType: TypeName | null
+  readonly name: string
+  readonly params: ReadonlyArray<Param>
+  readonly body: BlockStatement
 }
 
 export interface GlobalVariable extends Node {
@@ -59,6 +69,9 @@ export type Statement =
   | DoWhileStatement
   | ForStatement
   | ReturnStatement
+  | StateChangeStatement
+  | JumpStatement
+  | LabelStatement
 
 export interface BlockStatement extends Node {
   readonly kind: 'BlockStatement'
@@ -107,6 +120,22 @@ export interface ForStatement extends Node {
 export interface ReturnStatement extends Node {
   readonly kind: 'ReturnStatement'
   readonly argument: Expression | null
+}
+
+export interface StateChangeStatement extends Node {
+  readonly kind: 'StateChangeStatement'
+  /** Target state name (`default` or any user state). */
+  readonly target: string
+}
+
+export interface JumpStatement extends Node {
+  readonly kind: 'JumpStatement'
+  readonly label: string
+}
+
+export interface LabelStatement extends Node {
+  readonly kind: 'LabelStatement'
+  readonly name: string
 }
 
 // ---- Expressions ----

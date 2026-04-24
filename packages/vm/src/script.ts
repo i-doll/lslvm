@@ -1,13 +1,17 @@
 import type {
   Script as Ast,
   EventHandler,
+  FunctionDeclaration,
   GlobalVariable,
   TypeName,
 } from '@lf/parser'
 import type { BuiltinImpl, ChatEntry, CallEntry, ScriptState } from './runtime.js'
-import { execHandler } from './interpreter.js'
+import { execHandler, StateChangeSignal } from './interpreter.js'
 import type { EvalResult, LslType, LslValue } from './values/types.js'
+import { defaultEvalFor } from './values/types.js'
 import { Env } from './env.js'
+import { EVENT_SPECS } from './generated/events.js'
+import type { EventSpec } from './generated/events.js'
 
 export interface ScriptOptions {
   /** Filename used in diagnostics; defaults to "<inline>". */
@@ -23,6 +27,7 @@ export class Script {
   private readonly state: ScriptState
   private readonly mocks: Record<string, BuiltinImpl> = Object.create(null)
   private readonly globals: Env
+  private readonly userFunctions: Map<string, FunctionDeclaration>
   private readonly handlersByState: Map<string, Map<string, EventHandler>>
   private started = false
 
@@ -34,6 +39,7 @@ export class Script {
     }
     this.globals = new Env(null)
     initGlobals(this.globals, ast.globals)
+    this.userFunctions = new Map(ast.functions.map((f) => [f.name, f]))
     this.handlersByState = indexHandlers(ast)
     if (!this.handlersByState.has('default')) {
       throw new Error('LSL script has no default state')
@@ -80,25 +86,31 @@ export class Script {
   }
 
   /**
-   * Drive an event into the current state. Synchronous: runs the handler
-   * to completion before returning. If no handler exists in the current
-   * state for `eventName`, this is a no-op (matches LSL — events without
-   * handlers are silently dropped).
+   * Drive an event into the current state.
+   *
+   * `payload` is keyed by the event's documented parameter names (per kwdb).
+   * The handler's declared parameters bind by position to the event spec, so
+   * the user's chosen names don't have to match.
+   *
+   * Synchronous: runs the handler to completion before returning, including
+   * any state transitions triggered by `state foo;` (state_exit / change /
+   * state_entry chain runs before fire() returns).
+   *
+   * If the current state has no handler for `eventName`, this is a no-op
+   * — matches LSL behavior of silently dropping unhandled events.
    */
-  fire(eventName: string, _payload?: unknown): void {
+  fire(eventName: string, payload: Record<string, unknown> = {}): void {
     if (!this.started) {
       this.started = true
       const entry = this.handlersByState.get(this.state.currentState)?.get('state_entry')
       if (entry && eventName !== 'state_entry') {
-        execHandler(
-          { state: this.state, mocks: this.mocks, globals: this.globals },
-          entry,
-        )
+        this.runHandler(entry, [])
       }
     }
     const handler = this.handlersByState.get(this.state.currentState)?.get(eventName)
     if (!handler) return
-    execHandler({ state: this.state, mocks: this.mocks, globals: this.globals }, handler)
+    const args = bindPayload(eventName, payload)
+    this.runHandler(handler, args)
   }
 
   /** Run state_entry of the default state. */
@@ -107,9 +119,81 @@ export class Script {
     this.started = true
     const entry = this.handlersByState.get('default')?.get('state_entry')
     if (entry) {
-      execHandler({ state: this.state, mocks: this.mocks, globals: this.globals }, entry)
+      this.runHandler(entry, [])
     }
   }
+
+  /**
+   * Run a handler and process any state-change signal it raises.
+   *
+   * LSL semantics: when a handler executes `state foo;`, control leaves the
+   * handler immediately, the current state's `state_exit` fires, the state
+   * changes, then the new state's `state_entry` fires. We mirror that here
+   * with a small loop so that a `state_exit` or `state_entry` that itself
+   * does `state foo;` continues the chain correctly.
+   */
+  private runHandler(handler: EventHandler, args: ReadonlyArray<EvalResult>): void {
+    const ctx = {
+      state: this.state,
+      mocks: this.mocks,
+      globals: this.globals,
+      userFunctions: this.userFunctions,
+    }
+    let pending: { handler: EventHandler; args: ReadonlyArray<EvalResult> } | null = {
+      handler,
+      args,
+    }
+    while (pending) {
+      const { handler: h, args: a } = pending
+      pending = null
+      try {
+        execHandler(ctx, h, a)
+      } catch (e) {
+        if (!(e instanceof StateChangeSignal)) throw e
+        const target = e.target
+        // Run state_exit of current state.
+        const exit = this.handlersByState.get(this.state.currentState)?.get('state_exit')
+        if (exit) {
+          try {
+            execHandler(ctx, exit, [])
+          } catch (e2) {
+            if (e2 instanceof StateChangeSignal) {
+              // Discard further changes inside state_exit per LSL convention;
+              // the original target wins.
+            } else {
+              throw e2
+            }
+          }
+        }
+        if (!this.handlersByState.has(target)) {
+          throw new Error(`unknown state '${target}' in state change`)
+        }
+        this.state.currentState = target
+        const entry = this.handlersByState.get(target)?.get('state_entry')
+        if (entry) {
+          pending = { handler: entry, args: [] }
+        }
+      }
+    }
+  }
+}
+
+function bindPayload(
+  eventName: string,
+  payload: Record<string, unknown>,
+): EvalResult[] {
+  const spec = (EVENT_SPECS as Record<string, EventSpec>)[eventName]
+  if (!spec) return [] // unknown / custom event — let the handler bind however it wants
+  const args: EvalResult[] = []
+  for (const p of spec.params) {
+    const v = payload[p.name]
+    if (v === undefined) {
+      args.push(defaultEvalFor(p.type as LslType))
+    } else {
+      args.push({ type: p.type as LslType, value: v as LslValue })
+    }
+  }
+  return args
 }
 
 function indexHandlers(ast: Ast): Map<string, Map<string, EventHandler>> {
@@ -128,10 +212,6 @@ function initGlobals(env: Env, globals: ReadonlyArray<GlobalVariable>): void {
   for (const g of globals) {
     let init: EvalResult | undefined
     if (g.init) {
-      // Globals must initialize to literal expressions in LSL; we take a quick
-      // shortcut here and only support literal initializers from the AST. The
-      // full evaluator would require an empty interpreter context — overkill
-      // for global init.
       init = literalToEval(g.init, g.typeName)
     }
     env.declare(g.name, g.typeName as LslType, init)
@@ -174,7 +254,6 @@ function literalToEval(
       return { type: 'list', value: elems }
     }
     case 'UnaryExpression': {
-      // Permit unary minus on numeric literals — common in globals.
       const inner = literalToEval(expr.argument, declared)
       if (!inner) return undefined
       if (expr.operator === '-' && (inner.type === 'integer' || inner.type === 'float')) {
@@ -183,7 +262,6 @@ function literalToEval(
       return inner
     }
     default:
-      // Richer global initializers (constants, function calls) land later.
       return undefined
   }
 }

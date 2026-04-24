@@ -18,6 +18,7 @@ import type {
   ForStatement,
   BlockStatement,
   VariableDeclaration,
+  FunctionDeclaration,
   TypeName,
 } from '@lf/parser'
 import type { BuiltinImpl, ScriptState } from './runtime.js'
@@ -44,10 +45,20 @@ export interface InterpreterContext {
   readonly mocks: Readonly<Record<string, BuiltinImpl>>
   /** Globals environment shared across all event invocations. */
   readonly globals: Env
+  /** User-defined functions, indexed by name (LSL has a flat function namespace). */
+  readonly userFunctions: ReadonlyMap<string, FunctionDeclaration>
 }
 
 class ReturnSignal {
   constructor(public readonly value: EvalResult | null) {}
+}
+
+class JumpSignal {
+  constructor(public readonly label: string) {}
+}
+
+export class StateChangeSignal {
+  constructor(public readonly target: string) {}
 }
 
 export function execHandler(
@@ -69,10 +80,59 @@ export function execHandler(
   }
 }
 
+/**
+ * Invoke a user-defined function. Pushes a fresh env (no closures —
+ * functions see globals only), binds args to params, runs the body,
+ * and unwraps a ReturnSignal into the function's return value.
+ */
+export function callUserFunction(
+  ctx: InterpreterContext,
+  fn: FunctionDeclaration,
+  args: ReadonlyArray<EvalResult>,
+): EvalResult {
+  const env = ctx.globals.push()
+  fn.params.forEach((p, i) => {
+    const a = args[i] ?? defaultEvalFor(p.typeName as LslType)
+    env.declare(p.name, p.typeName as LslType, a)
+  })
+  try {
+    execBlock(ctx, env, fn.body)
+  } catch (e) {
+    if (e instanceof ReturnSignal) {
+      if (fn.returnType === null) return { type: 'void', value: 0 }
+      return e.value ? coerce(e.value, fn.returnType as LslType) : defaultEvalFor(fn.returnType as LslType)
+    }
+    throw e
+  }
+  // Fell off end without explicit return.
+  return fn.returnType ? defaultEvalFor(fn.returnType as LslType) : { type: 'void', value: 0 }
+}
+
 function execBlock(ctx: InterpreterContext, env: Env, block: BlockStatement): void {
   const child = env.push()
-  for (const stmt of block.body) {
-    execStatement(ctx, child, stmt)
+  // Pre-scan label positions so a JumpSignal can resume at one.
+  let labels: Map<string, number> | null = null
+  for (let i = 0; i < block.body.length; i++) {
+    const s = block.body[i]!
+    if (s.kind === 'LabelStatement') {
+      if (!labels) labels = new Map()
+      labels.set(s.name, i)
+    }
+  }
+  let i = 0
+  while (i < block.body.length) {
+    const stmt = block.body[i]!
+    try {
+      execStatement(ctx, child, stmt)
+      i++
+    } catch (e) {
+      if (e instanceof JumpSignal && labels && labels.has(e.label)) {
+        // Resume execution at the label.
+        i = labels.get(e.label)! + 1
+        continue
+      }
+      throw e
+    }
   }
 }
 
@@ -103,6 +163,13 @@ function execStatement(ctx: InterpreterContext, env: Env, stmt: Statement): void
       const value = stmt.argument ? evalExpression(ctx, env, stmt.argument) : null
       throw new ReturnSignal(value)
     }
+    case 'StateChangeStatement':
+      throw new StateChangeSignal(stmt.target)
+    case 'JumpStatement':
+      throw new JumpSignal(stmt.label)
+    case 'LabelStatement':
+      // No-op at execution time; labels are landing pads for `jump`.
+      return
   }
 }
 
@@ -317,6 +384,12 @@ function evalUpdate(ctx: InterpreterContext, env: Env, e: UpdateExpression): Eva
 function evalCall(ctx: InterpreterContext, env: Env, call: CallExpression): EvalResult {
   // Evaluate args eagerly (matches LSL semantics).
   const evalArgs = call.args.map((a) => evalExpression(ctx, env, a))
+  // User-defined function?
+  const userFn = ctx.userFunctions.get(call.callee)
+  if (userFn) {
+    return callUserFunction(ctx, userFn, evalArgs)
+  }
+  // Builtin (real, generated stub, or user-mocked).
   const rawArgs: LslValue[] = evalArgs.map((r) => r.value)
   const result = callBuiltin(ctx.state, ctx.mocks, call.callee, rawArgs)
   const spec = specFor(call.callee)
