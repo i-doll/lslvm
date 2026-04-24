@@ -42,7 +42,7 @@ describe('kwdb string-constant decoding', () => {
         }
       }
     `)
-    expect(s.global('captured')).toBe('\n\n')
+    expect(s.global('captured')).toBe('\n\u0015\n')
     expect(s.global('len')).toBe(3)
   })
 
