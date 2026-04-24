@@ -1,0 +1,341 @@
+import { describe, it, expect } from 'vitest'
+import { loadScript } from '../src/index.js'
+
+async function run(source: string) {
+  const s = await loadScript({ source })
+  s.start()
+  return s
+}
+
+describe('Phase 2 — variables & operators', () => {
+  it('declares a global, assigns from a handler, reads back via global()', async () => {
+    const s = await run(`
+      integer counter = 5;
+      default {
+        state_entry() {
+          counter = counter + 7;
+        }
+      }
+    `)
+    expect(s.global('counter')).toBe(12)
+  })
+
+  it('declares locals inside a handler', async () => {
+    const s = await run(`
+      integer total = 0;
+      default {
+        state_entry() {
+          integer a = 10;
+          integer b = 20;
+          total = a + b;
+        }
+      }
+    `)
+    expect(s.global('total')).toBe(30)
+  })
+
+  it('promotes int → float in arithmetic', async () => {
+    const s = await run(`
+      float result = 0;
+      default {
+        state_entry() {
+          result = 3 + 0.5;
+        }
+      }
+    `)
+    expect(s.global('result')).toBe(3.5)
+  })
+
+  it('integer division truncates toward zero', async () => {
+    const s = await run(`
+      integer a = 0;
+      integer b = 0;
+      default {
+        state_entry() {
+          a = 7 / 2;
+          b = -7 / 2;
+        }
+      }
+    `)
+    expect(s.global('a')).toBe(3)
+    expect(s.global('b')).toBe(-3)
+  })
+
+  it('integer arithmetic wraps at 32 bits', async () => {
+    const s = await run(`
+      integer hi = 0;
+      default {
+        state_entry() {
+          hi = 2147483647 + 1;
+        }
+      }
+    `)
+    expect(s.global('hi')).toBe(-2147483648)
+  })
+
+  it('compound assignment operators', async () => {
+    const s = await run(`
+      integer a = 10;
+      integer b = 10;
+      integer c = 10;
+      integer d = 10;
+      integer e = 10;
+      default {
+        state_entry() {
+          a += 5;
+          b -= 3;
+          c *= 2;
+          d /= 4;
+          e %= 3;
+        }
+      }
+    `)
+    expect(s.global('a')).toBe(15)
+    expect(s.global('b')).toBe(7)
+    expect(s.global('c')).toBe(20)
+    expect(s.global('d')).toBe(2)
+    expect(s.global('e')).toBe(1)
+  })
+
+  it('bitwise operators', async () => {
+    const s = await run(`
+      integer a = 0;
+      integer b = 0;
+      integer c = 0;
+      integer d = 0;
+      integer e = 0;
+      default {
+        state_entry() {
+          a = 0xF0 | 0x0F;
+          b = 0xFF & 0x0F;
+          c = 0xFF ^ 0x0F;
+          d = 1 << 4;
+          e = ~0;
+        }
+      }
+    `)
+    expect(s.global('a')).toBe(0xff)
+    expect(s.global('b')).toBe(0x0f)
+    expect(s.global('c')).toBe(0xf0)
+    expect(s.global('d')).toBe(16)
+    expect(s.global('e')).toBe(-1)
+  })
+
+  it('comparison operators return integer 1/0', async () => {
+    const s = await run(`
+      integer a = 0;
+      integer b = 0;
+      integer c = 0;
+      default {
+        state_entry() {
+          a = (5 > 3);
+          b = (5 == 5);
+          c = (5 != 3);
+        }
+      }
+    `)
+    expect(s.global('a')).toBe(1)
+    expect(s.global('b')).toBe(1)
+    expect(s.global('c')).toBe(1)
+  })
+
+  it('prefix and postfix ++/--', async () => {
+    const s = await run(`
+      integer pre = 0;
+      integer post = 0;
+      integer x = 0;
+      default {
+        state_entry() {
+          x = 5;
+          pre = ++x;   // x becomes 6, pre = 6
+          post = x--;  // post = 6, x becomes 5
+        }
+      }
+    `)
+    expect(s.global('pre')).toBe(6)
+    expect(s.global('post')).toBe(6)
+    expect(s.global('x')).toBe(5)
+  })
+})
+
+describe('Phase 2 — type coercions', () => {
+  it('(integer)"3.7" parses leading digits', async () => {
+    const s = await run(`
+      integer n = 0;
+      default { state_entry() { n = (integer)"3.7"; } }
+    `)
+    // (integer)"3.7" → 3 (parses "3", stops at ".")
+    expect(s.global('n')).toBe(3)
+  })
+
+  it('(integer)"  -42abc" handles whitespace, sign, stops at non-digit', async () => {
+    const s = await run(`
+      integer n = 0;
+      default { state_entry() { n = (integer)"  -42abc"; } }
+    `)
+    expect(s.global('n')).toBe(-42)
+  })
+
+  it('(float)"3.14abc" reads numeric prefix', async () => {
+    const s = await run(`
+      float f = 0;
+      default { state_entry() { f = (float)"3.14abc"; } }
+    `)
+    expect(s.global('f')).toBeCloseTo(3.14)
+  })
+
+  it('(integer) of float truncates toward zero', async () => {
+    const s = await run(`
+      integer a = 0;
+      integer b = 0;
+      default {
+        state_entry() {
+          a = (integer)3.7;
+          b = (integer)-3.7;
+        }
+      }
+    `)
+    expect(s.global('a')).toBe(3)
+    expect(s.global('b')).toBe(-3)
+  })
+
+  it('(string) of int / float / vector formats per LSL rules', async () => {
+    const s = await run(`
+      string a = "";
+      string b = "";
+      string c = "";
+      default {
+        state_entry() {
+          a = (string)42;
+          b = (string)3.5;
+          c = (string)<1, 2, 3>;
+        }
+      }
+    `)
+    expect(s.global('a')).toBe('42')
+    expect(s.global('b')).toBe('3.500000')
+    expect(s.global('c')).toBe('<1.000000, 2.000000, 3.000000>')
+  })
+})
+
+describe('Phase 2 — vectors and rotations', () => {
+  it('component access', async () => {
+    const s = await run(`
+      float vx = 0;
+      float vy = 0;
+      float vz = 0;
+      default {
+        state_entry() {
+          vector v = <1.0, 2.0, 3.0>;
+          vx = v.x;
+          vy = v.y;
+          vz = v.z;
+        }
+      }
+    `)
+    expect(s.global('vx')).toBe(1)
+    expect(s.global('vy')).toBe(2)
+    expect(s.global('vz')).toBe(3)
+  })
+
+  it('vector + vector', async () => {
+    const s = await run(`
+      vector r = <0,0,0>;
+      default {
+        state_entry() {
+          r = <1, 2, 3> + <10, 20, 30>;
+        }
+      }
+    `)
+    expect(s.global('r')).toEqual({ x: 11, y: 22, z: 33 })
+  })
+
+  it('vector * float scales', async () => {
+    const s = await run(`
+      vector r = <0,0,0>;
+      default {
+        state_entry() {
+          r = <1, 2, 3> * 2.5;
+        }
+      }
+    `)
+    expect(s.global('r')).toEqual({ x: 2.5, y: 5, z: 7.5 })
+  })
+
+  it('vector * vector → dot product (float)', async () => {
+    const s = await run(`
+      float d = 0;
+      default {
+        state_entry() {
+          d = <1, 2, 3> * <4, 5, 6>;
+        }
+      }
+    `)
+    expect(s.global('d')).toBe(1 * 4 + 2 * 5 + 3 * 6)
+  })
+
+  it('vector % vector → cross product', async () => {
+    const s = await run(`
+      vector r = <0,0,0>;
+      default {
+        state_entry() {
+          r = <1, 0, 0> % <0, 1, 0>;
+        }
+      }
+    `)
+    expect(s.global('r')).toEqual({ x: 0, y: 0, z: 1 })
+  })
+
+  it('member assignment via .x', async () => {
+    const s = await run(`
+      vector v = <1, 2, 3>;
+      default {
+        state_entry() {
+          v.x = 99;
+        }
+      }
+    `)
+    expect(s.global('v')).toEqual({ x: 99, y: 2, z: 3 })
+  })
+})
+
+describe('Phase 2 — lists', () => {
+  it('list literal + length via white-box global', async () => {
+    const s = await run(`
+      list xs = [];
+      default {
+        state_entry() {
+          xs = [1, 2, 3];
+        }
+      }
+    `)
+    expect(s.global('xs')).toEqual([1, 2, 3])
+  })
+
+  it('list + value appends; value + list prepends', async () => {
+    const s = await run(`
+      list a = [];
+      list b = [];
+      default {
+        state_entry() {
+          a = [1, 2] + 3;
+          b = 0 + [1, 2];
+        }
+      }
+    `)
+    expect(s.global('a')).toEqual([1, 2, 3])
+    expect(s.global('b')).toEqual([0, 1, 2])
+  })
+
+  it('list + list flattens (LSL has no nested lists)', async () => {
+    const s = await run(`
+      list r = [];
+      default {
+        state_entry() {
+          r = [1, 2] + [3, 4];
+        }
+      }
+    `)
+    expect(s.global('r')).toEqual([1, 2, 3, 4])
+  })
+})

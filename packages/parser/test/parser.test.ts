@@ -15,8 +15,9 @@ describe('parser — Phase 1 minimum', () => {
     const h = s.handlers[0]!
     expect(h.name).toBe('state_entry')
     expect(h.params).toEqual([])
-    expect(h.body).toHaveLength(1)
-    const stmt = h.body[0]!
+    expect(h.body.kind).toBe('BlockStatement')
+    expect(h.body.body).toHaveLength(1)
+    const stmt = h.body.body[0]!
     expect(stmt.kind).toBe('ExpressionStatement')
     if (stmt.kind !== 'ExpressionStatement') return
     expect(stmt.expression.kind).toBe('CallExpression')

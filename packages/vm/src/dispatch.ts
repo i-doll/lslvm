@@ -2,7 +2,13 @@ import type { BuiltinImpl, CallContext, ScriptState } from './runtime.js'
 import type { LslValue } from './values/types.js'
 import { defaultValueFor } from './values/types.js'
 import { BUILTIN_SPECS } from './generated/functions.js'
+import type { BuiltinSpec } from './generated/functions.js'
 import { REAL_BUILTINS } from './builtins/index.js'
+
+/** Look up the kwdb-derived spec for a function name, if any. */
+export function specFor(name: string): BuiltinSpec | undefined {
+  return (BUILTIN_SPECS as Record<string, BuiltinSpec>)[name]
+}
 
 /**
  * Resolve and invoke an `ll*` function call.
@@ -16,9 +22,7 @@ export function callBuiltin(
   name: string,
   args: ReadonlyArray<LslValue>,
 ): LslValue | undefined {
-  const spec = (BUILTIN_SPECS as Record<string, (typeof BUILTIN_SPECS)[keyof typeof BUILTIN_SPECS]>)[
-    name
-  ]
+  const spec = specFor(name)
   const impl = mocks[name] ?? REAL_BUILTINS[name] ?? makeStub(name)
   const ctx: CallContext = { state, spec }
   const result = impl(ctx, args)
@@ -27,9 +31,7 @@ export function callBuiltin(
 }
 
 function makeStub(name: string): BuiltinImpl {
-  const spec = (BUILTIN_SPECS as Record<string, (typeof BUILTIN_SPECS)[keyof typeof BUILTIN_SPECS]>)[
-    name
-  ]
+  const spec = specFor(name)
   if (!spec) {
     return () => {
       throw new Error(`unknown LSL function '${name}' (not in kwdb; use script.mock to provide it)`)

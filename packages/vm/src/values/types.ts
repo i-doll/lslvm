@@ -1,10 +1,12 @@
 /**
  * LSL value types as represented at runtime.
  *
- * LSL has 7 types: integer, float, string, key, vector, rotation, list.
- * `quaternion` is an alias for `rotation` in some grids.
- * `void` is used here only as a return-type marker; LSL functions that "return void"
- * are actually statements with no value.
+ * LSL has 7 value types: integer, float, string, key, vector, rotation, list.
+ * Internally we use raw JS values (number / string / Vector / Rotation / array)
+ * and carry the LSL type tag alongside in `EvalResult`. Tagging the type
+ * separately keeps the public boundary (call log, ll* builtin args) simple
+ * while still letting arithmetic and coercion know whether a number is an
+ * integer or a float.
  */
 
 export type LslType =
@@ -30,17 +32,17 @@ export interface Rotation {
   readonly s: number
 }
 
-/**
- * Runtime value carried by the interpreter. We keep it loose because LSL
- * coerces freely between types; callers that need stricter typing should
- * look at the originating type tag from the AST.
- */
 export type LslValue =
   | number
   | string
   | Vector
   | Rotation
   | ReadonlyArray<LslValue>
+
+export interface EvalResult {
+  readonly value: LslValue
+  readonly type: LslType
+}
 
 export const ZERO_VECTOR: Vector = Object.freeze({ x: 0, y: 0, z: 0 })
 export const ZERO_ROTATION: Rotation = Object.freeze({ x: 0, y: 0, z: 0, s: 1 })
@@ -65,4 +67,47 @@ export function defaultValueFor(type: LslType): LslValue | undefined {
     case 'void':
       return undefined
   }
+}
+
+export function defaultEvalFor(type: LslType): EvalResult {
+  return { value: defaultValueFor(type) ?? 0, type }
+}
+
+/** Truncate a JS number to LSL's 32-bit signed integer semantics. */
+export function toInt32(n: number): number {
+  // `| 0` does ToInt32; clamp NaN/Infinity to 0 first to mirror LSL's behaviour.
+  if (!Number.isFinite(n)) return 0
+  return n | 0
+}
+
+export function isVector(v: LslValue): v is Vector {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    !Array.isArray(v) &&
+    'x' in v &&
+    'y' in v &&
+    'z' in v &&
+    !('s' in v)
+  )
+}
+
+export function isRotation(v: LslValue): v is Rotation {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    !Array.isArray(v) &&
+    'x' in v &&
+    'y' in v &&
+    'z' in v &&
+    's' in v
+  )
+}
+
+export function vec(x: number, y: number, z: number): Vector {
+  return Object.freeze({ x, y, z })
+}
+
+export function rot(x: number, y: number, z: number, s: number): Rotation {
+  return Object.freeze({ x, y, z, s })
 }
