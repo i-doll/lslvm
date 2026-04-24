@@ -6,6 +6,7 @@ import type {
   TypeName,
 } from '@lf/parser'
 import type { BuiltinImpl, ChatEntry, CallEntry, ScriptState } from './runtime.js'
+import type { HttpRequestEntry } from './builtins/http.js'
 import { execHandler, StateChangeSignal } from './interpreter.js'
 import type { EvalResult, LslType, LslValue } from './values/types.js'
 import { defaultEvalFor } from './values/types.js'
@@ -13,6 +14,7 @@ import { Env } from './env.js'
 import { VirtualClock } from './clock.js'
 import { EVENT_SPECS } from './generated/events.js'
 import type { EventSpec } from './generated/events.js'
+import { CONSTANT_TABLE } from './generated/constants_table.js'
 
 export interface ScriptOptions {
   /** Filename used in diagnostics; defaults to "<inline>". */
@@ -38,8 +40,14 @@ export class Script {
       chat: [],
       calls: [],
       clock: new VirtualClock(),
+      httpRequests: [],
+      httpKeyCounter: 0,
     }
-    this.globals = new Env(null)
+    // Build a parent scope holding every kwdb constant (PI, TRUE, HTTP_METHOD,
+    // …). Script globals get their own scope below so a user can shadow
+    // constants if they really want to (LSL allows it).
+    const constants = buildConstantsEnv()
+    this.globals = constants.push()
     initGlobals(this.globals, ast.globals)
     this.userFunctions = new Map(ast.functions.map((f) => [f.name, f]))
     this.handlersByState = indexHandlers(ast)
@@ -89,6 +97,44 @@ export class Script {
   /** Filtered call log: only entries for `name`. */
   callsOf(name: string): ReadonlyArray<CallEntry> {
     return this.state.calls.filter((c) => c.name === name)
+  }
+
+  /** Captured outgoing HTTP requests from `llHTTPRequest`. */
+  get httpRequests(): ReadonlyArray<HttpRequestEntry> {
+    return this.state.httpRequests
+  }
+
+  /**
+   * Feed a response to a previously captured HTTP request. Schedules an
+   * `http_response` event for immediate delivery.
+   *
+   * Throws if `key` doesn't match a captured request.
+   */
+  respondToHttp(
+    key: string,
+    response: { status: number; body?: string; metadata?: ReadonlyArray<unknown> },
+  ): void {
+    const req = this.state.httpRequests.find((r) => r.key === key)
+    if (!req) throw new Error(`unknown HTTP request key: ${key}`)
+    req.fulfilled = true
+    this.state.clock.schedule(this.state.clock.now, 'http_response', {
+      request_id: key,
+      status: response.status,
+      metadata: response.metadata ?? [],
+      body: response.body ?? '',
+    })
+    this.drainQueue()
+  }
+
+  /** Convenience: respond to the most recent HTTP request. */
+  respondToLastHttp(response: {
+    status: number
+    body?: string
+    metadata?: ReadonlyArray<unknown>
+  }): void {
+    const req = this.state.httpRequests[this.state.httpRequests.length - 1]
+    if (!req) throw new Error('no HTTP request to respond to')
+    this.respondToHttp(req.key, response)
   }
 
   /**
@@ -332,4 +378,20 @@ function inferType(v: LslValue): LslType {
   if (Array.isArray(v)) return 'list'
   if (v && typeof v === 'object' && 's' in v) return 'rotation'
   return 'vector'
+}
+
+/**
+ * Construct a fresh Env with every kwdb constant pre-declared. Cheap
+ * enough at ~950 entries that we just rebuild it per Script instance —
+ * this avoids any cross-script aliasing of constant slots.
+ */
+function buildConstantsEnv(): Env {
+  const env = new Env(null)
+  for (const [name, entry] of Object.entries(CONSTANT_TABLE)) {
+    env.declare(name, entry.type as LslType, {
+      type: entry.type as LslType,
+      value: entry.value as LslValue,
+    })
+  }
+  return env
 }

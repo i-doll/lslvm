@@ -29,6 +29,9 @@ export interface ScriptState {
   readonly chat: ChatEntry[]
   readonly calls: CallEntry[]
   readonly clock: VirtualClock
+  readonly httpRequests: import('./builtins/http.js').HttpRequestEntry[]
+  /** Monotonic counter feeding deterministic HTTP request keys. */
+  httpKeyCounter: number
 }
 
 export type BuiltinImpl = (ctx: CallContext, args: ReadonlyArray<LslValue>) => LslValue | undefined
