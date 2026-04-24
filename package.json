@@ -9,11 +9,13 @@
     "build": "pnpm -r build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^2.1.0",
     "fast-xml-parser": "^4.5.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.0",

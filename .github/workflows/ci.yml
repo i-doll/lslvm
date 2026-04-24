@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Regenerate kwdb tables
+        run: pnpm gen
+
+      - name: Verify generated files are in sync with vendor/kwdb.xml
+        run: |
+          if ! git diff --quiet packages/vm/src/generated/; then
+            echo '::error::Generated files differ from a fresh `pnpm gen`. Re-run locally and commit.'
+            git --no-pager diff packages/vm/src/generated/
+            exit 1
+          fi
+
+      # Build before typecheck so the per-package `tsc --noEmit` can resolve
+      # `@lf/parser` / `@lf/vm` via their dist/*.d.ts. (Workspace packages use
+      # the package `exports` map, which only exposes dist; without a prior
+      # build, downstream packages can't see their dependencies' types.)
+      - name: Build
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test with coverage
+        run: pnpm test:coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          if-no-files-found: warn
+
+      - name: Coverage summary in job log
+        if: always()
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            node -e "
+              const s = require('./coverage/coverage-summary.json').total;
+              const fmt = (m) => \`\${m.pct.toFixed(2)}% (\${m.covered}/\${m.total})\`;
+              console.log('| metric | coverage |');
+              console.log('|---|---|');
+              for (const k of ['lines','statements','functions','branches']) {
+                console.log(\`| \${k} | \${fmt(s[k])} |\`);
+              }
+            " >> $GITHUB_STEP_SUMMARY
+          fi
