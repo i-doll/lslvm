@@ -43,20 +43,6 @@ TypeScript / Vitest experience with deterministic time, mockable `ll*`
 calls, and rich assertions over chat output, state transitions, HTTP
 requests, and script globals.
 
-## Status
-
-| Phase | What | Status |
-|---|---|---|
-| 0 | Workspace skeleton + kwdb codegen | done |
-| 1 | End-to-end "Hello, world" pipeline | done |
-| 2 | Full LSL grammar + types + control flow + multi-state | done |
-| 3 | ~100 real `ll*` implementations | done |
-| 4 | Polish, custom matchers, examples, docs | in progress |
-
-Everything not in the implemented set falls through to an
-auto-generated stub — a zero-arg call returning the documented default
-value, captured in the call log so you can assert against it.
-
 ## Packages
 
 | Package | Purpose |
@@ -198,8 +184,17 @@ for any function the script under test calls.
   function, observing call args via the call log, and stateful mocks
   that aggregate across multiple events.
 
-## Acknowledgements
+## License
+
+The lslvm project is licensed under the **Apache License, Version 2.0** —
+see [`LICENSE`](LICENSE).
 
 LSL function/event/constant signatures come from
 [Sei-Lisa/kwdb](https://github.com/Sei-Lisa/kwdb), vendored at
-`vendor/kwdb.xml` (LGPL-3.0).
+`vendor/kwdb.xml` and licensed under **LGPL-3.0-or-later**. Files
+mechanically derived from it (`packages/vm/src/generated/*.ts`) remain
+under that licence; see [`NOTICE`](NOTICE) for the full attribution.
+
+Apache 2.0 is one-way compatible with LGPL-3 (per the FSF), so a
+combined work that includes both can be redistributed under LGPL-3
+terms — which is what consumers receive when they use lslvm.

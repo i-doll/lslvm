@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "LSL test framework — Vitest-style DSL for Linden Scripting Language",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -16,6 +17,8 @@
     "dist",
     "vendor/kwdb.xml",
     "vendor/LICENSE-kwdb",
+    "LICENSE",
+    "NOTICE",
     "README.md"
   ],
   "scripts": {
