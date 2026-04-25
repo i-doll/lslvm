@@ -1,5 +1,5 @@
 {
-  "name": "@lf/parser",
+  "name": "@lslvm/parser",
   "version": "0.0.0",
   "private": true,
   "type": "module",

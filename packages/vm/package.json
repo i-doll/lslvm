@@ -1,5 +1,5 @@
 {
-  "name": "@lf/vm",
+  "name": "@lslvm/vm",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -17,7 +17,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@lf/parser": "workspace:*"
+    "@lslvm/parser": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

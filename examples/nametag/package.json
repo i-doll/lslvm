@@ -1,9 +1,9 @@
 {
-  "name": "@lf-example/nametag",
+  "name": "@lslvm-example/nametag",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": { "test": "vitest run" },
-  "dependencies": { "@lf/vitest": "workspace:*" },
+  "dependencies": { "@lslvm/vitest": "workspace:*" },
   "devDependencies": { "vitest": "^2.1.0" }
 }

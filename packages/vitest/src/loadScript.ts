@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
-import { parse, LslParseError } from '@lf/parser'
-import { Script } from '@lf/vm'
-import type { ScriptOptions } from '@lf/vm'
+import { parse, LslParseError } from '@lslvm/parser'
+import { Script } from '@lslvm/vm'
+import type { ScriptOptions } from '@lslvm/vm'
 
 export interface InlineScriptInput extends ScriptOptions {
   /** LSL source code as a string. */

@@ -9,3 +9,4 @@ tasks/
 .vitest-cache/
 .vscode/
 .idea/
+.claude/

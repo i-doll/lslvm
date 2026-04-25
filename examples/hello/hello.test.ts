@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { loadScript } from '@lf/vitest'
-import type { Script } from '@lf/vitest'
+import { loadScript } from '@lslvm/vitest'
+import type { Script } from '@lslvm/vitest'
 import { fileURLToPath } from 'node:url'
 
 const HELLO = fileURLToPath(new URL('./hello.lsl', import.meta.url))

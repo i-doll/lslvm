@@ -29,7 +29,7 @@ importers:
 
   examples/fetcher:
     dependencies:
-      '@lf/vitest':
+      '@lslvm/vitest':
         specifier: workspace:*
         version: link:../../packages/vitest
     devDependencies:
@@ -39,7 +39,7 @@ importers:
 
   examples/greeter:
     dependencies:
-      '@lf/vitest':
+      '@lslvm/vitest':
         specifier: workspace:*
         version: link:../../packages/vitest
     devDependencies:
@@ -49,7 +49,7 @@ importers:
 
   examples/hello:
     dependencies:
-      '@lf/vitest':
+      '@lslvm/vitest':
         specifier: workspace:*
         version: link:../../packages/vitest
     devDependencies:
@@ -59,7 +59,7 @@ importers:
 
   examples/nametag:
     dependencies:
-      '@lf/vitest':
+      '@lslvm/vitest':
         specifier: workspace:*
         version: link:../../packages/vitest
     devDependencies:
@@ -69,7 +69,7 @@ importers:
 
   examples/remote:
     dependencies:
-      '@lf/vitest':
+      '@lslvm/vitest':
         specifier: workspace:*
         version: link:../../packages/vitest
     devDependencies:
@@ -85,10 +85,10 @@ importers:
 
   packages/vitest:
     dependencies:
-      '@lf/parser':
+      '@lslvm/parser':
         specifier: workspace:*
         version: link:../parser
-      '@lf/vm':
+      '@lslvm/vm':
         specifier: workspace:*
         version: link:../vm
     devDependencies:
@@ -101,7 +101,7 @@ importers:
 
   packages/vm:
     dependencies:
-      '@lf/parser':
+      '@lslvm/parser':
         specifier: workspace:*
         version: link:../parser
     devDependencies:

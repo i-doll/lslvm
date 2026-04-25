@@ -1,5 +1,5 @@
 {
-  "name": "@lf-example/hello",
+  "name": "@lslvm-example/hello",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@lf/vitest": "workspace:*"
+    "@lslvm/vitest": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^2.1.0"
