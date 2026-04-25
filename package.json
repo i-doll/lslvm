@@ -4,19 +4,39 @@
   "private": true,
   "description": "LSL test framework — Vitest-style DSL for Linden Scripting Language",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "vendor/kwdb.xml",
+    "vendor/LICENSE-kwdb",
+    "README.md"
+  ],
   "scripts": {
     "gen": "tsx scripts/gen-stubs.ts",
     "build": "pnpm -r build",
+    "bundle": "tsup",
+    "prepare": "pnpm gen && pnpm build && pnpm bundle",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint"
   },
+  "peerDependencies": {
+    "vitest": "^4.1.5"
+  },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@vitest/coverage-v8": "^4.1.5",
     "fast-xml-parser": "^4.5.0",
+    "tsup": "^8.3.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.0",
     "vitest": "^4.1.5"
