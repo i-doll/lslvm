@@ -1,4 +1,4 @@
-# Logical Firefly
+# lslvm
 
 A **Vitest-style test framework for LSL** (Linden Scripting Language).
 
@@ -38,10 +38,10 @@ describe('greeter.lsl', () => {
 ## Why
 
 Up to now, the only way to test an LSL script has been to rez it
-in-world and exercise it by hand. Logical Firefly gives you a real
-type-checked TypeScript / Vitest experience with deterministic time,
-mockable `ll*` calls, and rich assertions over chat output, state
-transitions, HTTP requests, and script globals.
+in-world and exercise it by hand. lslvm gives you a real type-checked
+TypeScript / Vitest experience with deterministic time, mockable `ll*`
+calls, and rich assertions over chat output, state transitions, HTTP
+requests, and script globals.
 
 ## Status
 
