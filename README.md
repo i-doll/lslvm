@@ -61,7 +61,7 @@ your `import` lines stay clean:
 ```json
 {
   "devDependencies": {
-    "@lslvm/vitest": "npm:lslvm@github:i-doll/lslvm",
+    "@lslvm/vitest": "github:i-doll/lslvm#main",
     "vitest": "^4.0.0"
   }
 }
