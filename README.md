@@ -61,15 +61,16 @@ your `import` lines stay clean:
 ```json
 {
   "devDependencies": {
-    "@lslvm/vitest": "github:i-doll/lslvm#main",
-    "vitest": "^4.0.0"
+    "@lslvm/vitest": "github:i-doll/lslvm#release",
+    "vitest": "^4.1.5"
   }
 }
 ```
 
-`pnpm install` clones the repo, runs the `prepare` script (codegen +
-build + bundle), and exposes a single self-contained `dist/index.js`
-to your code. `vitest` is a peer dependency.
+The `release` branch is auto-published by CI and ships a prebuilt
+`dist/index.js` — `pnpm install` just clones it and links the bundle
+into your `node_modules`. No build runs at install time, so you don't
+need `pnpm approve-builds`. `vitest` is a peer dependency.
 
 ```ts
 import { loadScript } from '@lslvm/vitest'
