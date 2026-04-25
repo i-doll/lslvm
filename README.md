@@ -67,14 +67,36 @@ value, captured in the call log so you can assert against it.
 
 ## Install
 
-This is a workspace. There's no published version yet — work locally
-with the included examples while we iterate.
+### Use it from another project
+
+Not on npm yet. Install directly from git, aliasing the package name so
+your `import` lines stay clean:
+
+```json
+{
+  "devDependencies": {
+    "@lslvm/vitest": "npm:lslvm@github:i-doll/lslvm",
+    "vitest": "^4.0.0"
+  }
+}
+```
+
+`pnpm install` clones the repo, runs the `prepare` script (codegen +
+build + bundle), and exposes a single self-contained `dist/index.js`
+to your code. `vitest` is a peer dependency.
+
+```ts
+import { loadScript } from '@lslvm/vitest'
+```
+
+### Develop on lslvm itself
 
 ```sh
 pnpm install
-pnpm gen        # regenerate ll* stub tables from vendor/kwdb.xml
+pnpm gen          # regenerate ll* stub tables from vendor/kwdb.xml
 pnpm typecheck
-pnpm build
+pnpm build        # per-package tsc emit
+pnpm bundle       # produce the consumer-facing dist/index.js
 pnpm test
 ```
 
