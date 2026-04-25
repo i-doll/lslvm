@@ -164,13 +164,17 @@ for any function the script under test calls.
 
 ## Examples
 
-`examples/` ships five working scripts with tests:
+`examples/` ships six working scripts with tests:
 
 * **hello** — minimal `state_entry { llSay(...) }` + matchers.
 * **greeter** — touch + name greeting + state transition + reminder timer.
 * **remote** — owner-only listen on a custom channel + command dispatch.
 * **fetcher** — `llHTTPRequest` + `http_response` + status handling.
 * **nametag** — `llRequestAgentData` + `dataserver` + floating text.
+* **mocking** — patterns for `script.mock(...)`: pinning a real built-in
+  to a deterministic value, providing custom logic for an unimplemented
+  function, observing call args via the call log, and stateful mocks
+  that aggregate across multiple events.
 
 ## Acknowledgements
 
