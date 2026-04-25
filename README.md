@@ -62,7 +62,7 @@ your `import` lines stay clean:
 {
   "devDependencies": {
     "@lslvm/vitest": "github:i-doll/lslvm#release",
-    "vitest": "^4.0.0"
+    "vitest": "^4.1.5"
   }
 }
 ```
