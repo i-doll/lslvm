@@ -1,5 +1,5 @@
 {
-  "name": "@lf/vitest",
+  "name": "@lslvm/vitest",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -17,8 +17,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@lf/parser": "workspace:*",
-    "@lf/vm": "workspace:*"
+    "@lslvm/parser": "workspace:*",
+    "@lslvm/vm": "workspace:*"
   },
   "peerDependencies": {
     "vitest": "^2.1.0"

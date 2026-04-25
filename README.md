@@ -7,8 +7,8 @@ Tests run in milliseconds, in-process, with a virtual clock and mockable
 
 ```ts
 import { describe, it, expect, beforeEach } from 'vitest'
-import { loadScript, vm } from '@lf/vitest'
-import type { Script } from '@lf/vitest'
+import { loadScript, vm } from '@lslvm/vitest'
+import type { Script } from '@lslvm/vitest'
 
 describe('greeter.lsl', () => {
   let s: Script
@@ -61,9 +61,9 @@ value, captured in the call log so you can assert against it.
 
 | Package | Purpose |
 |---|---|
-| `@lf/parser` | Hand-written recursive-descent LSL parser |
-| `@lf/vm` | Tree-walking interpreter, virtual clock, dispatch |
-| `@lf/vitest` | `loadScript()` + custom matchers |
+| `@lslvm/parser` | Hand-written recursive-descent LSL parser |
+| `@lslvm/vm` | Tree-walking interpreter, virtual clock, dispatch |
+| `@lslvm/vitest` | `loadScript()` + custom matchers |
 
 ## Install
 

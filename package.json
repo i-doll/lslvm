@@ -1,5 +1,5 @@
 {
-  "name": "logical-firefly",
+  "name": "lslvm",
   "version": "0.0.0",
   "private": true,
   "description": "LSL test framework — Vitest-style DSL for Linden Scripting Language",

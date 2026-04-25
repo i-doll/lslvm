@@ -1,9 +1,9 @@
 {
-  "name": "@lf-example/remote",
+  "name": "@lslvm-example/remote",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": { "test": "vitest run" },
-  "dependencies": { "@lf/vitest": "workspace:*" },
+  "dependencies": { "@lslvm/vitest": "workspace:*" },
   "devDependencies": { "vitest": "^2.1.0" }
 }

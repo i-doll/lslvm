@@ -1,5 +1,5 @@
 import { expect } from 'vitest'
-import type { Script } from '@lf/vm'
+import type { Script } from '@lslvm/vm'
 
 /**
  * Custom Vitest matchers for the LSL Script handle.

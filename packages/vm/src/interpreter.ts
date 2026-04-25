@@ -20,7 +20,7 @@ import type {
   VariableDeclaration,
   FunctionDeclaration,
   TypeName,
-} from '@lf/parser'
+} from '@lslvm/parser'
 import type { BuiltinImpl, ScriptState } from './runtime.js'
 import { callBuiltin, specFor } from './dispatch.js'
 import type { EvalResult, LslType, LslValue, Vector, Rotation } from './values/types.js'
