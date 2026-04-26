@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { BUILTIN_SPECS } from '../src/generated/functions.js'
 import { EVENT_SPECS } from '../src/generated/events.js'
-import { PI, TRUE, FALSE, ZERO_VECTOR, ZERO_ROTATION } from '../src/generated/constants.js'
+import { PI, TRUE, FALSE } from '../src/generated/constants.js'
+import { ZERO_VECTOR, ZERO_ROTATION } from '../src/values/types.js'
 
 describe('generated kwdb tables', () => {
   it('has core ll* functions in BUILTIN_SPECS', () => {
