@@ -58,6 +58,14 @@ export interface ScriptState {
    */
   readonly detectedStack: import('./builtins/detected.js').DetectedContext[]
   /**
+   * Linkset Data store. Per-linkset key/value strings written via
+   * llLinksetDataWrite / llLinksetDataWriteProtected. Survives llResetScript
+   * (the LSD store is owned by the linkset, not the script). `password === ''`
+   * means the entry is unprotected. Map insertion order matches the LSL
+   * contract that llLinksetDataListKeys returns keys in write order.
+   */
+  readonly linksetData: Map<string, import('./builtins/linksetdata.js').LinksetDataEntry>
+  /**
    * Mutable prim appearance — set by llSetText / llSetObjectDesc / etc.
    * and exposed as Script.text / Script.objectDesc.
    */

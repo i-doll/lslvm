@@ -134,6 +134,8 @@ s.httpRequests                                  // [{ key, url, method, body, he
 s.dataserverRequests                            // [{ key, source, args, fulfilled }]
 s.listens                                       // [{ handle, channel, name, key, message, active }]
 s.linkedMessages                                // [{ target, num, str, id }]
+s.linksetData                                   // ReadonlyMap<string, { value, password }> (LSD store)
+s.seedLinksetData(entries)                      // pre-populate LSD without firing events
 s.text                                          // current llSetText: { text, color, alpha } or null
 s.objectDesc                                    // current llSetObjectDesc value
 s.dead                                          // true once llDie has run
@@ -170,10 +172,11 @@ for any function the script under test calls.
 * **hash**: `llMD5String`, `llSHA1String`, `llSHA256String`, `llHMAC`
 * **base64**: `llStringToBase64`/`Base64ToString`, `llIntegerToBase64`/`Base64ToInteger`
 * **object**: `llSetText`, `llSetObjectDesc`, `llGetObjectDesc`, `llDie`, `llResetScript`
+* **linkset data**: `llLinksetDataWrite`/`Read`/`Delete`/`WriteProtected`/`ReadProtected`/`DeleteProtected`/`DeleteFound`, `llLinksetDataReset`, `llLinksetDataAvailable`, `llLinksetDataCountKeys`/`CountFound`, `llLinksetDataListKeys`/`FindKeys` — fires the `linkset_data` event with `LINKSETDATA_UPDATE` / `DELETE` / `RESET` / `MULTIDELETE`. The store survives `llResetScript`. Inspect via `s.linksetData` (a `ReadonlyMap<string, { value, password }>`); pre-populate via `s.seedLinksetData([['k', { value: 'v' }]])`.
 
 ## Examples
 
-`examples/` ships six working scripts with tests:
+`examples/` ships seven working scripts with tests:
 
 * **hello** — minimal `state_entry { llSay(...) }` + matchers.
 * **greeter** — touch + name greeting + state transition + reminder timer.
@@ -184,6 +187,9 @@ for any function the script under test calls.
   to a deterministic value, providing custom logic for an unimplemented
   function, observing call args via the call log, and stateful mocks
   that aggregate across multiple events.
+* **scoreboard** — Linkset Data: per-name counters, regex key lookup
+  via `llLinksetDataFindKeys`, `linkset_data` event handling, and
+  state that survives `llResetScript`.
 
 ## License
 
