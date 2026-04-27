@@ -118,6 +118,28 @@ describe('Linkset Data', () => {
     expect(s.global('b')).toBe('v')
   })
 
+  it('Delete on missing key returns NOTFOUND; on empty name returns ENOKEY', async () => {
+    const s = await load(`
+      integer rcMissing = -1;
+      integer rcEmpty = -1;
+      integer rcMissingP = -1;
+      integer rcEmptyP = -1;
+      default {
+        state_entry() {
+          rcMissing  = llLinksetDataDelete("nope");
+          rcEmpty    = llLinksetDataDelete("");
+          rcMissingP = llLinksetDataDeleteProtected("nope", "pw");
+          rcEmptyP   = llLinksetDataDeleteProtected("", "pw");
+        }
+      }
+    `)
+    s.start()
+    expect(s.global('rcMissing')).toBe(4)
+    expect(s.global('rcEmpty')).toBe(2)
+    expect(s.global('rcMissingP')).toBe(4)
+    expect(s.global('rcEmptyP')).toBe(2)
+  })
+
   it('write with empty key name returns LINKSETDATA_ENOKEY', async () => {
     const s = await load(`
       integer rcW = -1;

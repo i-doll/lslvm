@@ -110,9 +110,10 @@ export const llLinksetDataReadProtected: BuiltinImpl = (ctx, args) => {
 
 export const llLinksetDataDelete: BuiltinImpl = (ctx, args) => {
   const name = (args[0] as string | undefined) ?? ''
+  if (name === '') return LINKSETDATA_ENOKEY
   const store = ctx.state.linksetData
   const entry = store.get(name)
-  if (!entry) return LINKSETDATA_ENOKEY
+  if (!entry) return LINKSETDATA_NOTFOUND
   if (entry.password !== '') return LINKSETDATA_EPROTECTED
   store.delete(name)
   fireEvent(ctx.state, LINKSETDATA_DELETE, name, '')
@@ -122,9 +123,10 @@ export const llLinksetDataDelete: BuiltinImpl = (ctx, args) => {
 export const llLinksetDataDeleteProtected: BuiltinImpl = (ctx, args) => {
   const name = (args[0] as string | undefined) ?? ''
   const password = (args[1] as string | undefined) ?? ''
+  if (name === '') return LINKSETDATA_ENOKEY
   const store = ctx.state.linksetData
   const entry = store.get(name)
-  if (!entry) return LINKSETDATA_ENOKEY
+  if (!entry) return LINKSETDATA_NOTFOUND
   if (entry.password !== '' && entry.password !== password) return LINKSETDATA_EPROTECTED
   store.delete(name)
   fireEvent(ctx.state, LINKSETDATA_DELETE, name, '')
