@@ -51,7 +51,7 @@ function slice<T>(arr: ReadonlyArray<T>, start: number, count: number): T[] {
 export const llLinksetDataWrite: BuiltinImpl = (ctx, args) => {
   const name = (args[0] as string | undefined) ?? ''
   const value = (args[1] as string | undefined) ?? ''
-  if (name === '') return LINKSETDATA_OK
+  if (name === '') return LINKSETDATA_ENOKEY
   const store = ctx.state.linksetData
   const existing = store.get(name)
   if (existing && existing.password !== '') return LINKSETDATA_EPROTECTED
@@ -71,7 +71,7 @@ export const llLinksetDataWriteProtected: BuiltinImpl = (ctx, args) => {
   const name = (args[0] as string | undefined) ?? ''
   const value = (args[1] as string | undefined) ?? ''
   const password = (args[2] as string | undefined) ?? ''
-  if (name === '') return LINKSETDATA_OK
+  if (name === '') return LINKSETDATA_ENOKEY
   const store = ctx.state.linksetData
   const existing = store.get(name)
   if (existing && existing.password !== '' && existing.password !== password) {

@@ -118,6 +118,23 @@ describe('Linkset Data', () => {
     expect(s.global('b')).toBe('v')
   })
 
+  it('write with empty key name returns LINKSETDATA_ENOKEY', async () => {
+    const s = await load(`
+      integer rcW = -1;
+      integer rcP = -1;
+      default {
+        state_entry() {
+          rcW = llLinksetDataWrite("", "v");
+          rcP = llLinksetDataWriteProtected("", "v", "pw");
+        }
+      }
+    `)
+    s.start()
+    expect(s.global('rcW')).toBe(2)
+    expect(s.global('rcP')).toBe(2)
+    expect(s.linksetData.size).toBe(0)
+  })
+
   it('empty-value write to a missing key returns LINKSETDATA_NOTFOUND', async () => {
     const s = await load(`
       integer rc = -1;
