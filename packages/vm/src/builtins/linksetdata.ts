@@ -103,7 +103,7 @@ export const llLinksetDataReadProtected: BuiltinImpl = (ctx, args) => {
   const password = (args[1] as string | undefined) ?? ''
   const entry = ctx.state.linksetData.get(name)
   if (!entry) return ''
-  if (entry.password !== password) return ''
+  if (entry.password !== '' && entry.password !== password) return ''
   return entry.value
 }
 

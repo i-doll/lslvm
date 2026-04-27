@@ -101,6 +101,23 @@ describe('Linkset Data', () => {
     expect(s.global('c')).toBe('')
   })
 
+  it('ReadProtected returns unprotected entry value regardless of password', async () => {
+    const s = await load(`
+      string a = "x";
+      string b = "x";
+      default {
+        state_entry() {
+          llLinksetDataWrite("k", "v");
+          a = llLinksetDataReadProtected("k", "");
+          b = llLinksetDataReadProtected("k", "ignored");
+        }
+      }
+    `)
+    s.start()
+    expect(s.global('a')).toBe('v')
+    expect(s.global('b')).toBe('v')
+  })
+
   it('plain write over a protected key returns EPROTECTED', async () => {
     const s = await load(`
       integer rc = -1;
