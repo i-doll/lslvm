@@ -3,6 +3,7 @@ import {
   LINKSETDATA_OK,
   LINKSETDATA_ENOKEY,
   LINKSETDATA_EPROTECTED,
+  LINKSETDATA_NOTFOUND,
   LINKSETDATA_NOUPDATE,
   LINKSETDATA_RESET,
   LINKSETDATA_UPDATE,
@@ -55,7 +56,7 @@ export const llLinksetDataWrite: BuiltinImpl = (ctx, args) => {
   const existing = store.get(name)
   if (existing && existing.password !== '') return LINKSETDATA_EPROTECTED
   if (value === '') {
-    if (!existing) return LINKSETDATA_OK
+    if (!existing) return LINKSETDATA_NOTFOUND
     store.delete(name)
     fireEvent(ctx.state, LINKSETDATA_DELETE, name, '')
     return LINKSETDATA_OK
@@ -77,7 +78,7 @@ export const llLinksetDataWriteProtected: BuiltinImpl = (ctx, args) => {
     return LINKSETDATA_EPROTECTED
   }
   if (value === '') {
-    if (!existing) return LINKSETDATA_OK
+    if (!existing) return LINKSETDATA_NOTFOUND
     store.delete(name)
     fireEvent(ctx.state, LINKSETDATA_DELETE, name, '')
     return LINKSETDATA_OK

@@ -118,6 +118,24 @@ describe('Linkset Data', () => {
     expect(s.global('b')).toBe('v')
   })
 
+  it('empty-value write to a missing key returns LINKSETDATA_NOTFOUND', async () => {
+    const s = await load(`
+      integer rc = -1;
+      integer events = 0;
+      default {
+        state_entry() {
+          rc = llLinksetDataWrite("missing", "");
+        }
+        linkset_data(integer action, string name, string value) {
+          events = events + 1;
+        }
+      }
+    `)
+    s.start()
+    expect(s.global('rc')).toBe(4)
+    expect(s.global('events')).toBe(0)
+  })
+
   it('plain write over a protected key returns EPROTECTED', async () => {
     const s = await load(`
       integer rc = -1;
