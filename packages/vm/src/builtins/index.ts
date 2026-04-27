@@ -105,6 +105,21 @@ import {
   llDie,
   llResetScript,
 } from './object.js'
+import {
+  llLinksetDataWrite,
+  llLinksetDataWriteProtected,
+  llLinksetDataRead,
+  llLinksetDataReadProtected,
+  llLinksetDataDelete,
+  llLinksetDataDeleteProtected,
+  llLinksetDataDeleteFound,
+  llLinksetDataReset,
+  llLinksetDataAvailable,
+  llLinksetDataCountKeys,
+  llLinksetDataListKeys,
+  llLinksetDataFindKeys,
+  llLinksetDataCountFound,
+} from './linksetdata.js'
 
 /**
  * Map of `ll*` name → real implementation. Anything not in this map falls
@@ -219,4 +234,18 @@ export const REAL_BUILTINS: Readonly<Record<string, BuiltinImpl>> = {
   llGetObjectDesc,
   llDie,
   llResetScript,
+  // linkset data
+  llLinksetDataWrite,
+  llLinksetDataWriteProtected,
+  llLinksetDataRead,
+  llLinksetDataReadProtected,
+  llLinksetDataDelete,
+  llLinksetDataDeleteProtected,
+  llLinksetDataDeleteFound,
+  llLinksetDataReset,
+  llLinksetDataAvailable,
+  llLinksetDataCountKeys,
+  llLinksetDataListKeys,
+  llLinksetDataFindKeys,
+  llLinksetDataCountFound,
 }

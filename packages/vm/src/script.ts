@@ -10,6 +10,7 @@ import type { HttpRequestEntry } from './builtins/http.js'
 import type { ListenEntry } from './builtins/listen.js'
 import type { LinkedMessageEntry } from './builtins/linked.js'
 import type { DataserverRequestEntry } from './builtins/dataserver.js'
+import type { LinksetDataEntry } from './builtins/linksetdata.js'
 import type { DetectedEntry } from './builtins/detected.js'
 import { ResetScriptSignal } from './builtins/object.js'
 import { Mulberry32 } from './random.js'
@@ -76,6 +77,7 @@ export class Script {
       dataserverRequests: [],
       dataserverKeyCounter: 0,
       detectedStack: [],
+      linksetData: new Map(),
       appearance: {
         text: null,
         description: '',
@@ -227,6 +229,24 @@ export class Script {
   /** Object description from llSetObjectDesc. */
   get objectDesc(): string {
     return this.state.appearance.description
+  }
+
+  /**
+   * Read-only view of the Linkset Data store. Tests can iterate to assert on
+   * keys / values / protection. Modify via the LSL builtins or seedLinksetData.
+   */
+  get linksetData(): ReadonlyMap<string, LinksetDataEntry> {
+    return this.state.linksetData
+  }
+
+  /**
+   * White-box helper: pre-populate the Linkset Data store without going
+   * through llLinksetDataWrite. Does not fire linkset_data events.
+   */
+  seedLinksetData(entries: Iterable<readonly [string, { value: string; password?: string }]>): void {
+    for (const [k, v] of entries) {
+      this.state.linksetData.set(k, { value: v.value, password: v.password ?? '' })
+    }
   }
 
   /** True once `llDie()` has been called. Subsequent fire() calls are no-ops. */

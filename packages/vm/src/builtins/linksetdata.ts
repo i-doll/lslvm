@@ -1,0 +1,200 @@
+import type { BuiltinImpl, ScriptState } from '../runtime.js'
+import {
+  LINKSETDATA_OK,
+  LINKSETDATA_ENOKEY,
+  LINKSETDATA_EPROTECTED,
+  LINKSETDATA_NOUPDATE,
+  LINKSETDATA_RESET,
+  LINKSETDATA_UPDATE,
+  LINKSETDATA_DELETE,
+  LINKSETDATA_MULTIDELETE,
+} from '../generated/constants.js'
+
+export interface LinksetDataEntry {
+  value: string
+  /** Empty string = unprotected. */
+  password: string
+}
+
+const LSD_AVAILABLE_BYTES = 131072
+
+function fireEvent(state: ScriptState, action: number, keyname: string, value: string): void {
+  state.clock.schedule(state.clock.now, 'linkset_data', { action, keyname, value })
+}
+
+function compilePattern(pattern: string): RegExp | null {
+  // LSL uses POSIX ERE; we use JS RegExp. The dialect gap is small in practice
+  // (anchors, character classes, alternation all match). Invalid patterns
+  // return no matches in LSL — emulate by returning null.
+  try {
+    return new RegExp(pattern)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Slice helper matching LSL list-style start/count semantics for ListKeys /
+ * FindKeys: negative `start` counts from the end; `count = -1` means "to the
+ * end".
+ */
+function slice<T>(arr: ReadonlyArray<T>, start: number, count: number): T[] {
+  if (arr.length === 0) return []
+  let s = start < 0 ? arr.length + start : start
+  if (s < 0) s = 0
+  if (s >= arr.length) return []
+  const end = count < 0 ? arr.length : Math.min(arr.length, s + count)
+  return arr.slice(s, end)
+}
+
+export const llLinksetDataWrite: BuiltinImpl = (ctx, args) => {
+  const name = (args[0] as string | undefined) ?? ''
+  const value = (args[1] as string | undefined) ?? ''
+  if (name === '') return LINKSETDATA_OK
+  const store = ctx.state.linksetData
+  const existing = store.get(name)
+  if (existing && existing.password !== '') return LINKSETDATA_EPROTECTED
+  if (value === '') {
+    if (!existing) return LINKSETDATA_OK
+    store.delete(name)
+    fireEvent(ctx.state, LINKSETDATA_DELETE, name, '')
+    return LINKSETDATA_OK
+  }
+  if (existing && existing.value === value) return LINKSETDATA_NOUPDATE
+  store.set(name, { value, password: '' })
+  fireEvent(ctx.state, LINKSETDATA_UPDATE, name, '')
+  return LINKSETDATA_OK
+}
+
+export const llLinksetDataWriteProtected: BuiltinImpl = (ctx, args) => {
+  const name = (args[0] as string | undefined) ?? ''
+  const value = (args[1] as string | undefined) ?? ''
+  const password = (args[2] as string | undefined) ?? ''
+  if (name === '') return LINKSETDATA_OK
+  const store = ctx.state.linksetData
+  const existing = store.get(name)
+  if (existing && existing.password !== '' && existing.password !== password) {
+    return LINKSETDATA_EPROTECTED
+  }
+  if (value === '') {
+    if (!existing) return LINKSETDATA_OK
+    store.delete(name)
+    fireEvent(ctx.state, LINKSETDATA_DELETE, name, '')
+    return LINKSETDATA_OK
+  }
+  if (existing && existing.value === value && existing.password === password) {
+    return LINKSETDATA_NOUPDATE
+  }
+  store.set(name, { value, password })
+  fireEvent(ctx.state, LINKSETDATA_UPDATE, name, '')
+  return LINKSETDATA_OK
+}
+
+export const llLinksetDataRead: BuiltinImpl = (ctx, args) => {
+  const name = (args[0] as string | undefined) ?? ''
+  const entry = ctx.state.linksetData.get(name)
+  if (!entry) return ''
+  if (entry.password !== '') return ''
+  return entry.value
+}
+
+export const llLinksetDataReadProtected: BuiltinImpl = (ctx, args) => {
+  const name = (args[0] as string | undefined) ?? ''
+  const password = (args[1] as string | undefined) ?? ''
+  const entry = ctx.state.linksetData.get(name)
+  if (!entry) return ''
+  if (entry.password !== password) return ''
+  return entry.value
+}
+
+export const llLinksetDataDelete: BuiltinImpl = (ctx, args) => {
+  const name = (args[0] as string | undefined) ?? ''
+  const store = ctx.state.linksetData
+  const entry = store.get(name)
+  if (!entry) return LINKSETDATA_ENOKEY
+  if (entry.password !== '') return LINKSETDATA_EPROTECTED
+  store.delete(name)
+  fireEvent(ctx.state, LINKSETDATA_DELETE, name, '')
+  return LINKSETDATA_OK
+}
+
+export const llLinksetDataDeleteProtected: BuiltinImpl = (ctx, args) => {
+  const name = (args[0] as string | undefined) ?? ''
+  const password = (args[1] as string | undefined) ?? ''
+  const store = ctx.state.linksetData
+  const entry = store.get(name)
+  if (!entry) return LINKSETDATA_ENOKEY
+  if (entry.password !== '' && entry.password !== password) return LINKSETDATA_EPROTECTED
+  store.delete(name)
+  fireEvent(ctx.state, LINKSETDATA_DELETE, name, '')
+  return LINKSETDATA_OK
+}
+
+export const llLinksetDataDeleteFound: BuiltinImpl = (ctx, args) => {
+  const pattern = (args[0] as string | undefined) ?? ''
+  const password = (args[1] as string | undefined) ?? ''
+  const re = compilePattern(pattern)
+  if (!re) return [0, 0]
+  const store = ctx.state.linksetData
+  let deleted = 0
+  let notDeleted = 0
+  for (const [name, entry] of [...store.entries()]) {
+    if (!re.test(name)) continue
+    if (entry.password !== '' && entry.password !== password) {
+      notDeleted += 1
+      continue
+    }
+    store.delete(name)
+    deleted += 1
+  }
+  if (deleted > 0) {
+    fireEvent(ctx.state, LINKSETDATA_MULTIDELETE, String(deleted), String(notDeleted))
+  }
+  return [deleted, notDeleted]
+}
+
+export const llLinksetDataReset: BuiltinImpl = (ctx) => {
+  ctx.state.linksetData.clear()
+  fireEvent(ctx.state, LINKSETDATA_RESET, '', '')
+  return undefined
+}
+
+export const llLinksetDataAvailable: BuiltinImpl = (ctx) => {
+  // TODO: track real bytes used (UTF-8 size of keys + values + overhead) once
+  // memory accounting lands. For now return the full quota minus a rough
+  // per-entry estimate so tests can still observe the value going down.
+  let used = 0
+  for (const [k, e] of ctx.state.linksetData) {
+    used += k.length + e.value.length + e.password.length
+  }
+  return Math.max(0, LSD_AVAILABLE_BYTES - used)
+}
+
+export const llLinksetDataCountKeys: BuiltinImpl = (ctx) => {
+  return ctx.state.linksetData.size
+}
+
+export const llLinksetDataListKeys: BuiltinImpl = (ctx, args) => {
+  const start = (args[0] as number | undefined) ?? 0
+  const count = (args[1] as number | undefined) ?? -1
+  return slice([...ctx.state.linksetData.keys()], start, count)
+}
+
+export const llLinksetDataFindKeys: BuiltinImpl = (ctx, args) => {
+  const pattern = (args[0] as string | undefined) ?? ''
+  const start = (args[1] as number | undefined) ?? 0
+  const count = (args[2] as number | undefined) ?? -1
+  const re = compilePattern(pattern)
+  if (!re) return []
+  const matches = [...ctx.state.linksetData.keys()].filter((k) => re.test(k))
+  return slice(matches, start, count)
+}
+
+export const llLinksetDataCountFound: BuiltinImpl = (ctx, args) => {
+  const pattern = (args[0] as string | undefined) ?? ''
+  const re = compilePattern(pattern)
+  if (!re) return 0
+  let n = 0
+  for (const k of ctx.state.linksetData.keys()) if (re.test(k)) n += 1
+  return n
+}
